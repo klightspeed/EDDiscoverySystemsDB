@@ -640,7 +640,7 @@ namespace EDDiscoverySystemsDB
 
                     if (name != null)
                     {
-                        idparam.Value = i;
+                        idparam.Value = i + 1;
                         nameparam.Value = name;
                         cmd.ExecuteNonQuery();
                     }
