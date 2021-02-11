@@ -18,7 +18,6 @@ namespace EDDiscoverySystemsDB
         {
             return a.EdsmId == b.EdsmId &&
                    a.SectorId == b.SectorId &&
-                   a.SystemAddress == b.SystemAddress &&
                    a.NameId == b.NameId &&
                    a.X == b.X &&
                    a.Y == b.Y &&
@@ -37,7 +36,7 @@ namespace EDDiscoverySystemsDB
 
         public override int GetHashCode()
         {
-            return HashCode.Combine(EdsmId, SectorId, SystemAddress, NameId, X, Y, Z);
+            return HashCode.Combine(EdsmId, SectorId, NameId, X, Y, Z);
         }
     }
 }
