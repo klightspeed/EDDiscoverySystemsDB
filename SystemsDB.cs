@@ -257,6 +257,8 @@ namespace EDDiscoverySystemsDB
                 }
             }
 
+            int num = 0;
+
             Console.Error.WriteLine("Loading systems");
             using (var cmd = conn.CreateCommand())
             {
@@ -289,8 +291,24 @@ namespace EDDiscoverySystemsDB
                     {
                         Systems[system.EdsmId] = system;
                     }
+
+                    num++;
+
+                    if ((num % 1000) == 0)
+                    {
+                        Console.Error.Write(".");
+
+                        if ((num % 64000) == 0)
+                        {
+                            Console.Error.WriteLine($" {num}");
+                        }
+
+                        Console.Error.Flush();
+                    }
                 }
             }
+
+            Console.Error.Write($" {num}\n");
         }
 
         private bool SplitProcgenName(string systemname, out string regionname, out int mid, out int n2, out int masscode)
@@ -598,7 +616,7 @@ namespace EDDiscoverySystemsDB
                 }
             }
 
-            Console.Error.WriteLine();
+            Console.Error.Write($" {num}\n");
             using var conn = CreateConnection();
             conn.Open();
             using var txn = conn.BeginTransaction();
