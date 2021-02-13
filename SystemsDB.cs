@@ -932,7 +932,7 @@ namespace EDDiscoverySystemsDB
                 var nameparam = cmd.Parameters.Add("@name", SqliteType.Text);
                 var mergeparam = cmd.Parameters.Add("@edsm_mergedto", SqliteType.Integer);
 
-                foreach (var (id, system, mergedto) in updaliases)
+                foreach (var (id, system, mergedto) in addaliases)
                 {
                     idparam.Value = id;
                     nameparam.Value = system;
