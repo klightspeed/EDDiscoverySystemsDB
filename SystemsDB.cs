@@ -2,6 +2,8 @@
 using Microsoft.Data.Sqlite;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -40,63 +42,65 @@ namespace EDDiscoverySystemsDB
 
         private readonly int[] GridZ = new[]
         {
-            -1216000,
-             -960000,
-             -704000,
-             -576000,
-             -448000,
-             -320000,
-             -192000,
-              -64000,
-               64000,
-              192000,
-              320000,
-              448000,
-              704000,
-              960000,
-             1216000,
-             1856000,
-             2496000,
-             3136000,
-             3776000,
-             4416000,
-             5056000,
-             5696000,
-             6336000,
-             6976000,
-             7616000
+             0,
+             2,
+             4,
+             5,
+             6,
+             7,
+             8,
+             9,
+            10,
+            11,
+            12,
+            13,
+            15,
+            17,
+            19,
+            24,
+            29,
+            34,
+            39,
+            44,
+            49,
+            54,
+            59,
+            64,
+            69,
+            71
         };
 
         private readonly int[] GridX = new[]
         {
-            -2496000,
-            -1856000,
-            -1216000,
-             -960000,
-             -704000,
-             -448000,
-             -192000,
-              -64000,
-               64000,
-              192000,
-              320000,
-              448000,
-              576000,
-              704000,
-              832000,
-             1088000,
-             1344000,
-             1984000,
-             2624000
+             0,
+             4,
+             9,
+            11,
+            13,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            25,
+            27,
+            29,
+            34,
+            39,
+            41
         };
 
         private readonly Dictionary<(string, int), Sector> Sectors = new Dictionary<(string, int), Sector>();
         
-        private readonly List<Sector> SectorList = new List<Sector>();
+        private readonly Dictionary<int, Sector> SectorList = new Dictionary<int, Sector>();
 
         private readonly Dictionary<string, int> NameIds = new Dictionary<string, int>();
 
-        private readonly List<string> Names = new List<string>();
+        private readonly Dictionary<int, string> Names = new Dictionary<int, string>();
 
         private readonly List<SystemEntry> Systems = new List<SystemEntry>();
 
@@ -132,7 +136,7 @@ namespace EDDiscoverySystemsDB
             {
                 cmd.CommandText =
                     "CREATE TABLE IF NOT EXISTS Sectors (" +
-                        "ID INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, " +
+                        "ID INTEGER NOT NULL PRIMARY KEY, " +
                         "GridId INT NOT NULL, " +
                         "Name VARCHAR(100) NOT NULL COLLATE NOCASE" +
                     ")";
@@ -157,7 +161,7 @@ namespace EDDiscoverySystemsDB
             {
                 cmd.CommandText =
                     "CREATE TABLE IF NOT EXISTS Names (" +
-                        "ID INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, " +
+                        "ID INTEGER NOT NULL PRIMARY KEY, " +
                         "Name VARCHAR(255) NOT NULL COLLATE NOCASE" +
                     ")";
                 cmd.ExecuteNonQuery();
@@ -199,10 +203,15 @@ namespace EDDiscoverySystemsDB
                 cmd.ExecuteNonQuery();
             }
 
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = "INSERT OR IGNORE INTO Register (ID, ValueString) VALUES ('EDSMGridIDs', 'All')";
+                cmd.ExecuteNonQuery();
+            }
+
             Console.Error.WriteLine("Loading sectors");
             using (var cmd = conn.CreateCommand())
             {
-                var sectors = new Dictionary<int, Sector>();
                 cmd.CommandText = "SELECT Id, Name, GridId FROM Sectors";
                 using var rdr = cmd.ExecuteReader();
 
@@ -215,45 +224,23 @@ namespace EDDiscoverySystemsDB
                         GridId = rdr.GetInt32(2)
                     };
 
-                    sectors[sector.Id] = sector;
-                }
-
-                var maxid = sectors.Keys.OrderByDescending(e => e).FirstOrDefault();
-
-                for (int i = 1; i <= maxid; i++)
-                {
-                    if (sectors.TryGetValue(i, out var sector))
-                    {
-                        Sectors[(sector.Name, sector.GridId)] = sector;
-                    }
-
-                    SectorList.Add(sector);
+                    Sectors[(sector.Name, sector.GridId)] = sector;
+                    SectorList[sector.Id] = sector;
                 }
             }
 
             Console.Error.WriteLine("Loading names");
             using (var cmd = conn.CreateCommand())
             {
-                var names = new Dictionary<int, string>();
                 cmd.CommandText = "SELECT Id, Name FROM Names";
                 using var rdr = cmd.ExecuteReader();
 
                 while (rdr.Read())
                 {
                     var id = rdr.GetInt32(0);
-                    names[id] = rdr.GetString(1);
-                }
-
-                var maxid = names.Keys.OrderByDescending(e => e).FirstOrDefault();
-
-                for (int i = 1; i <= maxid; i++)
-                {
-                    if (names.TryGetValue(i, out var name))
-                    {
-                        NameIds[name] = i;
-                    }
-
-                    Names.Add(name);
+                    var name = rdr.GetString(1);
+                    Names[id] = name;
+                    NameIds[name] = id;
                 }
             }
 
@@ -379,11 +366,12 @@ namespace EDDiscoverySystemsDB
             return false;
         }
 
-        private int GetNameId(string name)
+        private int GetNameId(string name, int edsmid)
         {
             if (!NameIds.TryGetValue(name, out var id))
             {
-                Names.Add(name);
+                id = edsmid;
+                Names[id] = name;
                 NameIds[name] = id = Names.Count;
             }
 
@@ -420,23 +408,23 @@ namespace EDDiscoverySystemsDB
                     else if (Surveys.Contains(nameparts[0]))
                     {
                         sectorname = nameparts[0];
-                        system.NameId = GetNameId(string.Join(" ", nameparts[1..]));
+                        system.NameId = GetNameId(string.Join(" ", nameparts[1..]), system.EdsmId);
                     }
                     else
                     {
                         sectorname = "NoSectorName";
-                        system.NameId = GetNameId(name);
+                        system.NameId = GetNameId(name, system.EdsmId);
                     }
                 }
                 else
                 {
                     sectorname = "NoSectorName";
-                    system.NameId = GetNameId(name);
+                    system.NameId = GetNameId(name, system.EdsmId);
                 }
             }
 
-            var gx = Array.BinarySearch(GridX, system.X) + 1;
-            var gz = Array.BinarySearch(GridZ, system.Z) + 1;
+            var gx = Array.BinarySearch(GridX, (system.X / 128 + 19500) / 1000) + 1;
+            var gz = Array.BinarySearch(GridZ, (system.Z / 128 + 9500) / 1000) + 1;
 
             if (gx < 0) gx = -gx;
             if (gz < 0) gz = -gz;
@@ -444,8 +432,8 @@ namespace EDDiscoverySystemsDB
 
             if (!Sectors.TryGetValue((sectorname, gridid), out var sector))
             {
-                sector = new Sector { Id = SectorList.Count + 1, Name = sectorname, GridId = gridid };
-                SectorList.Add(sector);
+                sector = new Sector { Id = SectorList.Keys.OrderByDescending(e => e).FirstOrDefault() + 1, Name = sectorname, GridId = gridid };
+                SectorList[sector.Id] = sector;
                 Sectors[(sectorname, gridid)] = sector;
             }
 
@@ -494,10 +482,11 @@ namespace EDDiscoverySystemsDB
             bool eof = false;
             var addsystems = new List<SystemEntry>();
             var updsystems = new List<SystemEntry>();
-            var lastsectorid = SectorList.Count;
-            var lastnameid = Names.Count;
+            var lastsectorid = SectorList.Keys.OrderByDescending(e => e).FirstOrDefault();
+            var nameids = Names.Keys.ToHashSet();
             var lastedsmid = Systems.Count;
             int num = 0;
+            var lastdate = DateTime.MinValue;
 
             end = stream.Read(span.Span);
 
@@ -554,6 +543,7 @@ namespace EDDiscoverySystemsDB
 
                     var system = new SystemEntry();
                     string sysname = null;
+                    DateTime date = default;
 
                     while (jrdr.Read() && jrdr.TokenType != JsonTokenType.EndObject)
                     {
@@ -566,7 +556,13 @@ namespace EDDiscoverySystemsDB
                             case ("id64", JsonTokenType.Number): system.SystemAddress = jrdr.GetInt64(); break;
                             case ("name", JsonTokenType.String): sysname = jrdr.GetString(); break;
                             case ("coords", JsonTokenType.StartObject): (system.X, system.Y, system.Z) = GetCoords(ref jrdr); break;
+                            case ("date", JsonTokenType.String): date = DateTime.Parse(jrdr.GetString()); break;
                         }
+                    }
+
+                    if (date > lastdate)
+                    {
+                        lastdate = date;
                     }
 
                     ProcessSystemName(system, sysname);
@@ -630,11 +626,9 @@ namespace EDDiscoverySystemsDB
                 var nameparam = cmd.Parameters.Add("@Name", SqliteType.Text);
                 var grididparam = cmd.Parameters.Add("@GridId", SqliteType.Integer);
 
-                for (int i = lastsectorid; i < SectorList.Count; i++)
+                foreach (var sector in SectorList.Values)
                 {
-                    var sector = SectorList[i];
-
-                    if (sector != default)
+                    if (sector.Id > lastsectorid)
                     {
                         idparam.Value = sector.Id;
                         nameparam.Value = sector.Name;
@@ -652,17 +646,27 @@ namespace EDDiscoverySystemsDB
                 var idparam = cmd.Parameters.Add("@Id", SqliteType.Integer);
                 var nameparam = cmd.Parameters.Add("@Name", SqliteType.Text);
 
-                for (int i = lastnameid; i < Names.Count; i++)
+                foreach (var kvp in Names)
                 {
-                    var name = Names[i];
+                    var id = kvp.Key;
+                    var name = kvp.Value;
 
-                    if (name != null)
+                    if (!nameids.Contains(id))
                     {
-                        idparam.Value = i + 1;
+                        idparam.Value = id;
                         nameparam.Value = name;
                         cmd.ExecuteNonQuery();
                     }
                 }
+            }
+
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.Transaction = txn;
+                cmd.CommandText = "INSERT OR REPLACE INTO Register (Id, ValueInt) VALUES (@Id, @Val)";
+                cmd.Parameters.AddWithValue("@Id", "EDSMSectorIDNext");
+                cmd.Parameters.AddWithValue("@Val", SectorList.Keys.OrderByDescending(e => e).FirstOrDefault() + 1);
+                cmd.ExecuteNonQuery();
             }
 
             Console.Error.WriteLine("Saving inserted systems");
@@ -789,6 +793,15 @@ namespace EDDiscoverySystemsDB
                         }
                     }
                 }
+            }
+
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.Transaction = txn;
+                cmd.CommandText = "INSERT OR REPLACE INTO Register (Id, ValueString) VALUES (@Id, @Val)";
+                cmd.Parameters.AddWithValue("@Id", "EDSMLastSystems");
+                cmd.Parameters.AddWithValue("@Val", lastdate.ToString("s"));
+                cmd.ExecuteNonQuery();
             }
 
             Console.Error.WriteLine($" {num}");
