@@ -930,7 +930,7 @@ namespace EDDiscoverySystemsDB
                 cmd.CommandText = "INSERT INTO Aliases (edsmid, name, edsmid_mergedto) VALUES (@edsmid, @name, @edsmid_mergedto)";
                 var idparam = cmd.Parameters.Add("@edsmid", SqliteType.Integer);
                 var nameparam = cmd.Parameters.Add("@name", SqliteType.Text);
-                var mergeparam = cmd.Parameters.Add("@edsm_mergedto", SqliteType.Integer);
+                var mergeparam = cmd.Parameters.Add("@edsmid_mergedto", SqliteType.Integer);
 
                 foreach (var (id, system, mergedto) in addaliases)
                 {
