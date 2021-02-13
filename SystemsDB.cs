@@ -169,6 +169,17 @@ namespace EDDiscoverySystemsDB
 
             using (var cmd = conn.CreateCommand())
             {
+                cmd.CommandText =
+                    "CREATE TABLE IF NOT EXISTS Aliases (" +
+                        "edsmid INTEGER PRIMARY KEY NOT NULL, " +
+                        "edsmid_mergedto INTEGER, " +
+                        "name TEXT COLLATE NOCASE" +
+                    ")";
+                cmd.ExecuteNonQuery();
+            }
+
+            using (var cmd = conn.CreateCommand())
+            {
                 cmd.CommandText = "CREATE INDEX IF NOT EXISTS SystemsSectorName ON Systems (SectorId, NameId)";
                 cmd.ExecuteNonQuery();
             }
@@ -806,6 +817,139 @@ namespace EDDiscoverySystemsDB
 
             Console.Error.WriteLine($" {num}");
             Console.Error.WriteLine("Committing");
+            txn.Commit();
+        }
+
+        public void ProcessAliases(string aliaspath)
+        {
+            var aliasesdate = File.GetLastWriteTimeUtc(aliaspath);
+            var aliases = new Dictionary<int, (int id, string system, int? mergedto)>();
+            var aliasdata = File.ReadAllBytes(aliaspath);
+            var jrdr = new Utf8JsonReader(aliasdata);
+            jrdr.Read();
+            Debug.Assert(jrdr.TokenType == JsonTokenType.StartArray);
+
+            while (jrdr.Read() && jrdr.TokenType != JsonTokenType.EndArray)
+            {
+                Debug.Assert(jrdr.TokenType == JsonTokenType.StartObject);
+                string system = null;
+                int id = 0;
+                int? mergedto = null;
+
+                while (jrdr.Read() && jrdr.TokenType != JsonTokenType.EndObject)
+                {
+                    Debug.Assert(jrdr.TokenType == JsonTokenType.PropertyName);
+                    var name = jrdr.GetString();
+                    jrdr.Read();
+                    switch ((name, jrdr.TokenType))
+                    {
+                        case ("system", JsonTokenType.String): system = jrdr.GetString(); break;
+                        case ("id", JsonTokenType.Number): id = jrdr.GetInt32(); break;
+                        case ("mergedTo", JsonTokenType.Number): mergedto = jrdr.GetInt32(); break;
+                    }
+                }
+
+                aliases[id] = (id, system, mergedto);
+            }
+
+            var addaliases = new List<(int id, string system, int? mergedto)>();
+            var updaliases = new List<(int id, string system, int? mergedto)>();
+            var delaliases = new List<int>();
+            var dbaliases = new HashSet<int>();
+
+            var conn = CreateConnection();
+            conn.Open();
+
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = "SELECT edsmid, edsmid_mergedto, name FROM Aliases";
+
+                using var rdr = cmd.ExecuteReader();
+                while (rdr.Read())
+                {
+                    int id = rdr.GetInt32(0);
+                    int? mergedto = rdr.IsDBNull(1) ? (int?)null : rdr.GetInt32(1);
+                    string system = rdr.GetString(2);
+
+                    dbaliases.Add(id);
+
+                    if (!aliases.TryGetValue(id, out var alias))
+                    {
+                        delaliases.Add(id);
+                    }
+                    else if (system != alias.system || mergedto != alias.mergedto)
+                    {
+                        updaliases.Add((id, system, mergedto));
+                    }
+                }
+            }
+
+            foreach (var alias in aliases.Values)
+            {
+                if (!dbaliases.Contains(alias.id))
+                {
+                    addaliases.Add(alias);
+                }
+            }
+
+            using var txn = conn.BeginTransaction();
+
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.Transaction = txn;
+                cmd.CommandText = "DELETE FROM Aliases WHERE edsmid = @edsmid";
+                var idparam = cmd.Parameters.Add("@edsmid", SqliteType.Integer);
+
+                foreach (var id in delaliases)
+                {
+                    idparam.Value = id;
+                    cmd.ExecuteNonQuery();
+                }
+            }
+
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.Transaction = txn;
+                cmd.CommandText = "UPDATE Aliases SET name = @name, edsmid_mergedto = @edsmid_mergedto WHERE edsmid = @edsmid";
+                var idparam = cmd.Parameters.Add("@edsmid", SqliteType.Integer);
+                var nameparam = cmd.Parameters.Add("@name", SqliteType.Text);
+                var mergeparam = cmd.Parameters.Add("@edsm_mergedto", SqliteType.Integer);
+
+                foreach (var (id, system, mergedto) in updaliases)
+                {
+                    idparam.Value = id;
+                    nameparam.Value = system;
+                    mergeparam.Value = (object)mergedto ?? DBNull.Value;
+                    cmd.ExecuteNonQuery();
+                }
+            }
+
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.Transaction = txn;
+                cmd.CommandText = "INSERT INTO Aliases (edsmid, name, edsmid_mergedto) VALUES (@edsmid, @name, @edsmid_mergedto)";
+                var idparam = cmd.Parameters.Add("@edsmid", SqliteType.Integer);
+                var nameparam = cmd.Parameters.Add("@name", SqliteType.Text);
+                var mergeparam = cmd.Parameters.Add("@edsm_mergedto", SqliteType.Integer);
+
+                foreach (var (id, system, mergedto) in updaliases)
+                {
+                    idparam.Value = id;
+                    nameparam.Value = system;
+                    mergeparam.Value = (object)mergedto ?? DBNull.Value;
+                    cmd.ExecuteNonQuery();
+                }
+            }
+
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.Transaction = txn;
+                cmd.CommandText = "INSERT OR REPLACE INTO Register (Id, ValueString) VALUES (@Id, @Val)";
+                cmd.Parameters.AddWithValue("@Id", "EDSMAliasLastDownloadTime");
+                cmd.Parameters.AddWithValue("@Val", aliasesdate.ToString("O"));
+                cmd.ExecuteNonQuery();
+            }
+
             txn.Commit();
         }
     }
