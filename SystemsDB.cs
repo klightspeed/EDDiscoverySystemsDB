@@ -934,10 +934,13 @@ namespace EDDiscoverySystemsDB
 
                 foreach (var (id, system, mergedto) in addaliases)
                 {
-                    idparam.Value = id;
-                    nameparam.Value = system;
-                    mergeparam.Value = (object)mergedto ?? DBNull.Value;
-                    cmd.ExecuteNonQuery();
+                    if (system != null)
+                    {
+                        idparam.Value = id;
+                        nameparam.Value = system;
+                        mergeparam.Value = (object)mergedto ?? DBNull.Value;
+                        cmd.ExecuteNonQuery();
+                    }
                 }
             }
 
