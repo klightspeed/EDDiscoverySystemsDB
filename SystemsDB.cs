@@ -389,7 +389,7 @@ namespace EDDiscoverySystemsDB
             return id;
         }
 
-        private void ProcessSystemName(SystemEntry system, string name)
+        private void ProcessSystemName(ref SystemEntry system, string name)
         {
             string sectorname = null;
 
@@ -576,7 +576,7 @@ namespace EDDiscoverySystemsDB
                         lastdate = date;
                     }
 
-                    ProcessSystemName(system, sysname);
+                    ProcessSystemName(ref system, sysname);
 
                     while (Systems.Count < system.EdsmId)
                     {
