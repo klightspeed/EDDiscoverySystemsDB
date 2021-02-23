@@ -66,8 +66,7 @@ namespace EDDiscoverySystemsDB
             54,
             59,
             64,
-            69,
-            71
+            69
         };
 
         private readonly int[] GridX = new[]
@@ -90,13 +89,16 @@ namespace EDDiscoverySystemsDB
             27,
             29,
             34,
-            39,
-            41
+            39
         };
 
         private readonly Dictionary<(string, int), Sector> Sectors = new Dictionary<(string, int), Sector>();
         
         private readonly Dictionary<int, Sector> SectorList = new Dictionary<int, Sector>();
+
+        private readonly Dictionary<string, int> SectorNames = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        private readonly HashSet<int> CurrentSectors = new HashSet<int>();
 
         private readonly Dictionary<string, int> NameIds = new Dictionary<string, int>();
 
@@ -235,8 +237,20 @@ namespace EDDiscoverySystemsDB
                         GridId = rdr.GetInt32(2)
                     };
 
-                    Sectors[(sector.Name, sector.GridId)] = sector;
+                    Sectors[(sector.Name.ToLowerInvariant(), sector.GridId)] = sector;
                     SectorList[sector.Id] = sector;
+                    CurrentSectors.Add(sector.Id);
+
+                    if (sector.Id >= 100000)
+                    {
+                        var nameid = sector.Id / 100000;
+                        var name = sector.Name;
+
+                        if (!SectorNames.ContainsKey(name))
+                        {
+                            SectorNames[name] = nameid;
+                        }
+                    }
                 }
             }
 
@@ -383,7 +397,7 @@ namespace EDDiscoverySystemsDB
             {
                 id = edsmid;
                 Names[id] = name;
-                NameIds[name] = id = Names.Count;
+                NameIds[name] = id;
             }
 
             return id;
@@ -441,11 +455,18 @@ namespace EDDiscoverySystemsDB
             if (gz < 0) gz = -gz;
             var gridid = gz * 100 + gx;
 
-            if (!Sectors.TryGetValue((sectorname, gridid), out var sector))
+            if (!Sectors.TryGetValue((sectorname.ToLowerInvariant(), gridid), out var sector))
             {
-                sector = new Sector { Id = SectorList.Keys.OrderByDescending(e => e).FirstOrDefault() + 1, Name = sectorname, GridId = gridid };
-                SectorList[sector.Id] = sector;
-                Sectors[(sectorname, gridid)] = sector;
+                var id = SectorList.Keys.OrderByDescending(e => e).FirstOrDefault() + 1;
+
+                if (id <= 0)
+                {
+                    id = 1;
+                }
+
+                sector = new Sector { Id = id, Name = sectorname, GridId = gridid };
+                SectorList[id] = sector;
+                Sectors[(sectorname.ToLowerInvariant(), gridid)] = sector;
             }
 
             system.SectorId = sector.Id;
@@ -464,14 +485,23 @@ namespace EDDiscoverySystemsDB
 
                 switch ((name, jrdr.TokenType))
                 {
-                    case ("x", JsonTokenType.Number): x = (int)(jrdr.GetDouble() * 128 + 0.5); break;
-                    case ("y", JsonTokenType.Number): y = (int)(jrdr.GetDouble() * 128 + 0.5); break;
-                    case ("z", JsonTokenType.Number): z = (int)(jrdr.GetDouble() * 128 + 0.5); break;
+                    case ("x", JsonTokenType.Number): x = (int)Math.Floor(jrdr.GetDouble() * 128 + 0.5); break;
+                    case ("y", JsonTokenType.Number): y = (int)Math.Floor(jrdr.GetDouble() * 128 + 0.5); break;
+                    case ("z", JsonTokenType.Number): z = (int)Math.Floor(jrdr.GetDouble() * 128 + 0.5); break;
                     default: throw new InvalidOperationException();
                 }
             }
 
             return (x, y, z);
+        }
+
+        public void LoadNames(string csvpath)
+        {
+            foreach (var line in File.ReadAllLines(csvpath).Skip(1))
+            {
+                var fields = line.Split(',', 2);
+                SectorNames[fields[1]] = int.Parse(fields[0]);
+            }
         }
 
         public void DownloadSystems(string gzpath)
@@ -623,12 +653,59 @@ namespace EDDiscoverySystemsDB
                 }
             }
 
-            Console.Error.Write($" {num}\n");
+            Console.Error.WriteLine($" {num}");
+
+            Console.Error.WriteLine("Sorting new sectors");
+
+            var newsectors =
+                SectorList
+                    .Where(e => e.Key > 0)
+                    .OrderBy(e => e.Value.Name, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+            var sectormap = new Dictionary<int, int>();
+
+            foreach (var kvp in newsectors)
+            {
+                var sector = kvp.Value;
+                SectorList.Remove(kvp.Key);
+                
+                if (!SectorNames.TryGetValue(sector.Name, out var nameid))
+                {
+                    nameid = SectorNames.Values.OrderByDescending(e => e).FirstOrDefault() + 1;
+                    SectorNames[sector.Name] = nameid;
+                }
+
+                sector.Id = -(nameid * 10000 + sector.GridId);
+                sectormap[kvp.Key] = sector.Id;
+                SectorList[sector.Id] = sector;
+            }
+
+            for (int i = 0; i < addsystems.Count; i++)
+            {
+                var system = addsystems[i];
+                if (sectormap.TryGetValue(system.SectorId, out var newsectorid))
+                {
+                    system.SectorId = newsectorid;
+                    addsystems[i] = system;
+                }
+            }
+
+            for (int i = 0; i < updsystems.Count; i++)
+            {
+                var system = updsystems[i];
+                if (sectormap.TryGetValue(system.SectorId, out var newsectorid))
+                {
+                    system.SectorId = newsectorid;
+                    updsystems[i] = system;
+                }
+            }
+
+            Console.Error.WriteLine("Saving sectors");
             using var conn = CreateConnection();
             conn.Open();
             using var txn = conn.BeginTransaction();
 
-            Console.Error.WriteLine("Saving sectors");
             using (var cmd = conn.CreateCommand())
             {
                 cmd.Transaction = txn;
@@ -639,12 +716,13 @@ namespace EDDiscoverySystemsDB
 
                 foreach (var sector in SectorList.Values)
                 {
-                    if (sector.Id > lastsectorid)
+                    if (!CurrentSectors.Contains(sector.Id))
                     {
                         idparam.Value = sector.Id;
                         nameparam.Value = sector.Name;
                         grididparam.Value = sector.GridId;
                         cmd.ExecuteNonQuery();
+                        CurrentSectors.Add(sector.Id);
                     }
                 }
             }
@@ -676,7 +754,7 @@ namespace EDDiscoverySystemsDB
                 cmd.Transaction = txn;
                 cmd.CommandText = "INSERT OR REPLACE INTO Register (Id, ValueInt) VALUES (@Id, @Val)";
                 cmd.Parameters.AddWithValue("@Id", "EDSMSectorIDNext");
-                cmd.Parameters.AddWithValue("@Val", SectorList.Keys.OrderByDescending(e => e).FirstOrDefault() + 1);
+                cmd.Parameters.AddWithValue("@Val", 1);
                 cmd.ExecuteNonQuery();
             }
 
