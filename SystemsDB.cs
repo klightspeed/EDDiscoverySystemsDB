@@ -100,8 +100,6 @@ namespace EDDiscoverySystemsDB
 
         private readonly HashSet<int> CurrentSectors = new HashSet<int>();
 
-        private readonly Dictionary<string, int> NameIds = new Dictionary<string, int>();
-
         private readonly Dictionary<int, string> Names = new Dictionary<int, string>();
 
         private readonly List<SystemEntry> Systems = new List<SystemEntry>();
@@ -263,9 +261,7 @@ namespace EDDiscoverySystemsDB
                 while (rdr.Read())
                 {
                     var id = rdr.GetInt32(0);
-                    var name = rdr.GetString(1);
-                    Names[id] = name;
-                    NameIds[name] = id;
+                    Names[id] = rdr.GetString(1);
                 }
             }
 
@@ -393,14 +389,8 @@ namespace EDDiscoverySystemsDB
 
         private int GetNameId(string name, int edsmid)
         {
-            if (!NameIds.TryGetValue(name, out var id))
-            {
-                id = edsmid;
-                Names[id] = name;
-                NameIds[name] = id;
-            }
-
-            return id;
+            Names[edsmid] = name;
+            return edsmid;
         }
 
         private void ProcessSystemName(ref SystemEntry system, string name)
@@ -414,7 +404,7 @@ namespace EDDiscoverySystemsDB
                 var l2 = (mid / 26) % 26;
                 var l3 = (mid / 26 / 26) % 26;
                 var n1 = mid / 26 / 26 / 26;
-                system.NameId = n2 + (n1 << 16) + (masscode << 24) + ((long)l3 << 28) + ((long)l2 << 33) + ((long)l1 << 38) + (1L << 47);
+                system.NameId = n2 + (n1 << 16) + (masscode << 24) + ((long)(l3 + 1) << 28) + ((long)(l2 + 1) << 33) + ((long)(l1 + 1) << 38) + (1L << 47);
             }
             else
             {
@@ -428,7 +418,7 @@ namespace EDDiscoverySystemsDB
                     if (long.TryParse(num, out var v) && v < 0x3fffffffff)
                     {
                         sectorname = string.Join(" ", nameparts[..^1]);
-                        system.NameId = v + (1L << 46) + ((long)dashpos << 38) + ((long)num.Length << 42);
+                        system.NameId = v + (1L << 46) + ((long)(dashpos + 1) << 38) + ((long)num.Length << 42);
                     }
                     else if (Surveys.Contains(nameparts[0]))
                     {
@@ -448,8 +438,8 @@ namespace EDDiscoverySystemsDB
                 }
             }
 
-            var gx = Array.BinarySearch(GridX, (system.X / 128 + 19500) / 1000) + 1;
-            var gz = Array.BinarySearch(GridZ, (system.Z / 128 + 9500) / 1000) + 1;
+            var gx = Array.BinarySearch(GridX, (int)Math.Floor((system.X / 128 + 19500) / 1000.0)) + 1;
+            var gz = Array.BinarySearch(GridZ, (int)Math.Floor((system.Z / 128 + 9500) / 1000.0)) + 1;
 
             if (gx < 0) gx = -gx;
             if (gz < 0) gz = -gz;
@@ -698,6 +688,16 @@ namespace EDDiscoverySystemsDB
                 {
                     system.SectorId = newsectorid;
                     updsystems[i] = system;
+                }
+            }
+
+            for (int i = lastedsmid + 1; i < Systems.Count; i++)
+            {
+                var system = Systems[i];
+                if (system.EdsmId == i && sectormap.TryGetValue(system.SectorId, out var newsectorid))
+                {
+                    system.SectorId = newsectorid;
+                    Systems[i] = system;
                 }
             }
 
