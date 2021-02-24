@@ -102,32 +102,52 @@ namespace EDDiscoverySystemsDB
 
         private readonly Dictionary<int, string> Names = new Dictionary<int, string>();
 
+        private readonly Dictionary<int, string> OrigNames = new Dictionary<int, string>();
+
         private readonly List<SystemEntry> Systems = new List<SystemEntry>();
 
-        private SqliteConnection CreateConnection()
+        private readonly Dictionary<string, string> Selectors = new Dictionary<string, string>
+        {
+            ["All"] = "All",
+            ["Bubble"] = "810",
+            ["ExtendedBubble"] = "608,609,610,611,612,708,709,710,711,712,808,809,810,811,812,908,909,910,911,912,1008,1009,1010,1011,1012",
+            ["BubbleColonia"] = "608,609,610,611,612,708,709,710,711,712,808,809,810,811,812,908,909,910,911,912,1008,1009,1010,1011,1012,1108,1109,1110,1207,1208,1209,1306,1307,1308,1405,1406,1407,1504,1505,1603,1604,1703"
+        };
+
+        private SqliteConnection CreateConnection(string selname)
         {
             var csb = new SqliteConnectionStringBuilder
             {
-                DataSource = Path.Combine(BasePath, "EDDSystem.sqlite")
+                DataSource = Path.Combine(BasePath, $"EDDSystem-{selname}.sqlite")
             };
 
             return new SqliteConnection(csb.ToString());
         }
-
+        
         public void Init()
         {
-            using var conn = CreateConnection();
+            foreach (string selname in Selectors.Keys)
+            {
+                Init(selname);
+            }
+
+            LoadExisting();
+        }
+
+        private void Init(string selname)
+        {
+            using var conn = CreateConnection(selname);
             conn.Open();
 
             using (var cmd = conn.CreateCommand())
             {
                 cmd.CommandText =
                     "CREATE TABLE IF NOT EXISTS Register (" +
-                        "ID VARCHAR(100) NOT NULL PRIMARY KEY, " +
-                        "ValueInt BIGINT, " +
+                        "ID TEXT PRIMARY KEY NOT NULL, " +
+                        "ValueInt INTEGER, " +
                         "ValueDouble DOUBLE, " +
-                        "ValueString VARCHAR(100), " +
-                        "ValueBlob VARBINARY(100)" +
+                        "ValueString TEXT, " +
+                        "ValueBlob BLOB" +
                     ")";
                 cmd.ExecuteNonQuery();
             }
@@ -136,9 +156,9 @@ namespace EDDiscoverySystemsDB
             {
                 cmd.CommandText =
                     "CREATE TABLE IF NOT EXISTS Sectors (" +
-                        "ID INTEGER NOT NULL PRIMARY KEY, " +
-                        "GridId INT NOT NULL, " +
-                        "Name VARCHAR(100) NOT NULL COLLATE NOCASE" +
+                        "id INTEGER PRIMARY KEY NOT NULL, " +
+                        "gridid INTEGER, " +
+                        "Name TEXT NOT NULL COLLATE NOCASE" +
                     ")";
                 cmd.ExecuteNonQuery();
             }
@@ -147,12 +167,12 @@ namespace EDDiscoverySystemsDB
             {
                 cmd.CommandText =
                     "CREATE TABLE IF NOT EXISTS Systems (" +
-                        "EdsmId INT NOT NULL PRIMARY KEY, " +
-                        "SectorId INT NOT NULL, " +
-                        "NameId BIGINT NOT NULL, " +
-                        "X INT NOT NULL, " +
-                        "Y INT NOT NULL, " +
-                        "Z INT NOT NULL" +
+                        "edsmid INTEGER PRIMARY KEY NOT NULL , " +
+                        "sectorid INTEGER, " +
+                        "nameid INTEGER, " +
+                        "x INTEGER, " +
+                        "y INTEGER, " +
+                        "z INTEGER" +
                     ")";
                 cmd.ExecuteNonQuery();
             }
@@ -161,8 +181,8 @@ namespace EDDiscoverySystemsDB
             {
                 cmd.CommandText =
                     "CREATE TABLE IF NOT EXISTS Names (" +
-                        "ID INTEGER NOT NULL PRIMARY KEY, " +
-                        "Name VARCHAR(255) NOT NULL COLLATE NOCASE" +
+                        "id INTEGER PRIMARY KEY NOT NULL , " +
+                        "Name TEXT NOT NULL COLLATE NOCASE " +
                     ")";
                 cmd.ExecuteNonQuery();
             }
@@ -180,45 +200,23 @@ namespace EDDiscoverySystemsDB
 
             using (var cmd = conn.CreateCommand())
             {
-                cmd.CommandText = "CREATE INDEX IF NOT EXISTS SystemsSectorName ON Systems (SectorId, NameId)";
-                cmd.ExecuteNonQuery();
-            }
-
-            using (var cmd = conn.CreateCommand())
-            {
-                cmd.CommandText = "CREATE INDEX IF NOT EXISTS SystemsXZY ON Systems (X, Z, Y)";
-                cmd.ExecuteNonQuery();
-            }
-
-            using (var cmd = conn.CreateCommand())
-            {
-                cmd.CommandText = "CREATE INDEX IF NOT EXISTS NamesName ON Names (Name)";
-                cmd.ExecuteNonQuery();
-            }
-
-            using (var cmd = conn.CreateCommand())
-            {
-                cmd.CommandText = "CREATE INDEX IF NOT EXISTS SectorName ON Sectors (Name)";
-                cmd.ExecuteNonQuery();
-            }
-
-            using (var cmd = conn.CreateCommand())
-            {
-                cmd.CommandText = "CREATE INDEX IF NOT EXISTS SectorGridId ON Sectors (GridId)";
-                cmd.ExecuteNonQuery();
-            }
-
-            using (var cmd = conn.CreateCommand())
-            {
                 cmd.CommandText = "INSERT OR IGNORE INTO Register (ID, ValueInt) VALUES ('DBVer', 200)";
                 cmd.ExecuteNonQuery();
             }
 
             using (var cmd = conn.CreateCommand())
             {
-                cmd.CommandText = "INSERT OR IGNORE INTO Register (ID, ValueString) VALUES ('EDSMGridIDs', 'All')";
+                cmd.CommandText = "INSERT OR IGNORE INTO Register (ID, ValueString) VALUES ('EDSMGridIDs', @GridIds)";
+                cmd.Parameters.AddWithValue("@GridIds", Selectors.TryGetValue(selname, out var gridids) ? gridids : "All");
                 cmd.ExecuteNonQuery();
             }
+
+        }
+
+        private void LoadExisting()
+        {
+            using var conn = CreateConnection("All");
+            conn.Open();
 
             Console.Error.WriteLine("Loading sectors");
             using (var cmd = conn.CreateCommand())
@@ -262,6 +260,7 @@ namespace EDDiscoverySystemsDB
                 {
                     var id = rdr.GetInt32(0);
                     Names[id] = rdr.GetString(1);
+                    OrigNames[id] = Names[id];
                 }
             }
 
@@ -701,201 +700,323 @@ namespace EDDiscoverySystemsDB
                 }
             }
 
-            Console.Error.WriteLine("Saving sectors");
-            using var conn = CreateConnection();
-            conn.Open();
-            using var txn = conn.BeginTransaction();
-
-            using (var cmd = conn.CreateCommand())
+            foreach (var selkvp in Selectors)
             {
-                cmd.Transaction = txn;
-                cmd.CommandText = "INSERT INTO Sectors (Id, Name, GridId) VALUES (@Id, @Name, @GridId)";
-                var idparam = cmd.Parameters.Add("@Id", SqliteType.Integer);
-                var nameparam = cmd.Parameters.Add("@Name", SqliteType.Text);
-                var grididparam = cmd.Parameters.Add("@GridId", SqliteType.Integer);
+                Console.Error.WriteLine($"Saving database for selection {selkvp.Key}");
 
-                foreach (var sector in SectorList.Values)
+                HashSet<int> gridids;
+
+                var grididlist = selkvp.Value.Split(',');
+
+                if (grididlist.All(e => int.TryParse(e, out _)))
                 {
-                    if (!CurrentSectors.Contains(sector.Id))
-                    {
-                        idparam.Value = sector.Id;
-                        nameparam.Value = sector.Name;
-                        grididparam.Value = sector.GridId;
-                        cmd.ExecuteNonQuery();
-                        CurrentSectors.Add(sector.Id);
-                    }
+                    gridids = grididlist.Select(e => int.Parse(e)).ToHashSet();
                 }
-            }
-
-            Console.Error.WriteLine("Saving names");
-            using (var cmd = conn.CreateCommand())
-            {
-                cmd.Transaction = txn;
-                cmd.CommandText = "INSERT INTO Names (Id, Name) VALUES (@Id, @Name)";
-                var idparam = cmd.Parameters.Add("@Id", SqliteType.Integer);
-                var nameparam = cmd.Parameters.Add("@Name", SqliteType.Text);
-
-                foreach (var kvp in Names)
+                else
                 {
-                    var id = kvp.Key;
-                    var name = kvp.Value;
-
-                    if (!nameids.Contains(id))
-                    {
-                        idparam.Value = id;
-                        nameparam.Value = name;
-                        cmd.ExecuteNonQuery();
-                    }
+                    gridids = SectorList.Values.Select(e => e.GridId).Distinct().ToHashSet();
                 }
-            }
 
-            using (var cmd = conn.CreateCommand())
-            {
-                cmd.Transaction = txn;
-                cmd.CommandText = "INSERT OR REPLACE INTO Register (Id, ValueInt) VALUES (@Id, @Val)";
-                cmd.Parameters.AddWithValue("@Id", "EDSMSectorIDNext");
-                cmd.Parameters.AddWithValue("@Val", 1);
-                cmd.ExecuteNonQuery();
-            }
+                var sysids = Systems.Where(e => SectorList.TryGetValue(e.SectorId, out var sector) && gridids.Contains(sector.GridId)).Select(e => e.EdsmId).ToHashSet();
 
-            Console.Error.WriteLine("Saving inserted systems");
-            using (var cmd = conn.CreateCommand())
-            {
-                cmd.Transaction = txn;
-                cmd.CommandText = "INSERT INTO Systems (EdsmId, SectorId, NameId, X, Y, Z) VALUES (@EdsmId, @SectorId, @NameId, @X, @Y, @Z)";
-                var edsmidparam = cmd.Parameters.Add("@EdsmId", SqliteType.Integer);
-                var sectoridparam = cmd.Parameters.Add("@SectorId", SqliteType.Integer);
-                var nameidparam = cmd.Parameters.Add("@NameId", SqliteType.Integer);
-                var xparam = cmd.Parameters.Add("@X", SqliteType.Integer);
-                var yparam = cmd.Parameters.Add("@Y", SqliteType.Integer);
-                var zparam = cmd.Parameters.Add("@Z", SqliteType.Integer);
+                Console.Error.WriteLine("Saving sectors");
+                using var conn = CreateConnection(selkvp.Key);
+                conn.Open();
+                using var txn = conn.BeginTransaction();
 
-                num = 0;
-                foreach (var system in addsystems)
+                using (var cmd = conn.CreateCommand())
                 {
-                    edsmidparam.Value = system.EdsmId;
-                    sectoridparam.Value = system.SectorId;
-                    nameidparam.Value = system.NameId;
-                    xparam.Value = system.X;
-                    yparam.Value = system.Y;
-                    zparam.Value = system.Z;
-                    cmd.ExecuteNonQuery();
+                    cmd.Transaction = txn;
+                    cmd.CommandText = "INSERT INTO Sectors (Id, Name, GridId) VALUES (@Id, @Name, @GridId)";
+                    var idparam = cmd.Parameters.Add("@Id", SqliteType.Integer);
+                    var nameparam = cmd.Parameters.Add("@Name", SqliteType.Text);
+                    var grididparam = cmd.Parameters.Add("@GridId", SqliteType.Integer);
 
-                    num++;
-
-                    if ((num % 1000) == 0)
+                    foreach (var sector in SectorList.Values)
                     {
-                        Console.Error.Write(".");
-
-                        if ((num % 64000) == 0)
+                        if (!CurrentSectors.Contains(sector.Id) && gridids.Contains(sector.GridId))
                         {
-                            Console.Error.WriteLine($" {num}");
+                            idparam.Value = sector.Id;
+                            nameparam.Value = sector.Name;
+                            grididparam.Value = sector.GridId;
+                            cmd.ExecuteNonQuery();
+                            CurrentSectors.Add(sector.Id);
                         }
-
-                        Console.Error.Flush();
                     }
                 }
-            }
 
-            Console.Error.WriteLine($" {num}");
-            Console.Error.WriteLine("Updating systems");
-            using (var cmd = conn.CreateCommand())
-            {
-                cmd.Transaction = txn;
-                cmd.CommandText = "UPDATE Systems SET SectorId = @SectorId, NameId = @NameId, X = @X, Y = @Y, Z = @Z WHERE EdsmId = @EdsmId";
-                var edsmidparam = cmd.Parameters.Add("@EdsmId", SqliteType.Integer);
-                var sectoridparam = cmd.Parameters.Add("@SectorId", SqliteType.Integer);
-                var nameidparam = cmd.Parameters.Add("@NameId", SqliteType.Integer);
-                var xparam = cmd.Parameters.Add("@X", SqliteType.Integer);
-                var yparam = cmd.Parameters.Add("@Y", SqliteType.Integer);
-                var zparam = cmd.Parameters.Add("@Z", SqliteType.Integer);
-
-                num = 0;
-
-                foreach (var system in updsystems)
+                Console.Error.WriteLine("Saving names");
+                using (var cmd = conn.CreateCommand())
                 {
-                    edsmidparam.Value = system.EdsmId;
-                    sectoridparam.Value = system.SectorId;
-                    nameidparam.Value = system.NameId;
-                    xparam.Value = system.X;
-                    yparam.Value = system.Y;
-                    zparam.Value = system.Z;
-                    cmd.ExecuteNonQuery();
+                    cmd.Transaction = txn;
+                    cmd.CommandText = "INSERT OR REPLACE INTO Names (Id, Name) VALUES (@Id, @Name)";
+                    var idparam = cmd.Parameters.Add("@Id", SqliteType.Integer);
+                    var nameparam = cmd.Parameters.Add("@Name", SqliteType.Text);
 
-                    num++;
-
-                    if ((num % 1000) == 0)
+                    foreach (var kvp in Names)
                     {
-                        Console.Error.Write(".");
+                        var id = kvp.Key;
+                        var name = kvp.Value;
 
-                        if ((num % 64000) == 0)
+                        if (sysids.Contains(id) && (!OrigNames.TryGetValue(id, out var origname) || origname != name))
                         {
-                            Console.Error.WriteLine($" {num}");
+                            idparam.Value = id;
+                            nameparam.Value = name;
+                            cmd.ExecuteNonQuery();
                         }
-
-                        Console.Error.Flush();
                     }
                 }
-            }
 
-            Console.WriteLine($" {num}");
-            Console.Error.WriteLine("Appending systems");
-            using (var cmd = conn.CreateCommand())
-            {
-                cmd.Transaction = txn;
-                cmd.CommandText = "INSERT INTO Systems (EdsmId, SectorId, NameId, X, Y, Z) VALUES (@EdsmId, @SectorId, @NameId, @X, @Y, @Z)";
-                var edsmidparam = cmd.Parameters.Add("@EdsmId", SqliteType.Integer);
-                var sectoridparam = cmd.Parameters.Add("@SectorId", SqliteType.Integer);
-                var nameidparam = cmd.Parameters.Add("@NameId", SqliteType.Integer);
-                var xparam = cmd.Parameters.Add("@X", SqliteType.Integer);
-                var yparam = cmd.Parameters.Add("@Y", SqliteType.Integer);
-                var zparam = cmd.Parameters.Add("@Z", SqliteType.Integer);
-
-                num = 0;
-
-                for (int i = lastedsmid; i < Systems.Count; i++)
+                using (var cmd = conn.CreateCommand())
                 {
-                    var system = Systems[i];
+                    cmd.Transaction = txn;
+                    cmd.CommandText = "DELETE FROM Names WHERE Id = @Id";
+                    var idparam = cmd.Parameters.Add("@Id", SqliteType.Integer);
 
-                    if (system != default)
+                    foreach (var kvp in Names)
                     {
-                        edsmidparam.Value = system.EdsmId;
-                        sectoridparam.Value = system.SectorId;
-                        nameidparam.Value = system.NameId;
-                        xparam.Value = system.X;
-                        yparam.Value = system.Y;
-                        zparam.Value = system.Z;
-                        cmd.ExecuteNonQuery();
+                        var id = kvp.Key;
 
-                        num++;
-
-                        if ((num % 1000) == 0)
+                        if (!sysids.Contains(id))
                         {
-                            Console.Error.Write(".");
+                            idparam.Value = id;
+                            cmd.ExecuteNonQuery();
+                        }
+                    }
+                }
 
-                            if ((num % 64000) == 0)
+                using (var cmd = conn.CreateCommand())
+                {
+                    var id = SectorList.Keys.OrderByDescending(e => e).FirstOrDefault() + 1;
+
+                    if (id <= 0)
+                    {
+                        id = 1;
+                    }
+
+                    cmd.Transaction = txn;
+                    cmd.CommandText = "INSERT OR REPLACE INTO Register (Id, ValueInt) VALUES (@Id, @Val)";
+                    cmd.Parameters.AddWithValue("@Id", "EDSMSectorIDNext");
+                    cmd.Parameters.AddWithValue("@Val", id);
+                    cmd.ExecuteNonQuery();
+                }
+
+                Console.Error.WriteLine("Saving inserted systems");
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.Transaction = txn;
+                    cmd.CommandText = "INSERT OR REPLACE INTO Systems (EdsmId, SectorId, NameId, X, Y, Z) VALUES (@EdsmId, @SectorId, @NameId, @X, @Y, @Z)";
+                    var edsmidparam = cmd.Parameters.Add("@EdsmId", SqliteType.Integer);
+                    var sectoridparam = cmd.Parameters.Add("@SectorId", SqliteType.Integer);
+                    var nameidparam = cmd.Parameters.Add("@NameId", SqliteType.Integer);
+                    var xparam = cmd.Parameters.Add("@X", SqliteType.Integer);
+                    var yparam = cmd.Parameters.Add("@Y", SqliteType.Integer);
+                    var zparam = cmd.Parameters.Add("@Z", SqliteType.Integer);
+
+                    num = 0;
+                    foreach (var system in addsystems)
+                    {
+                        if (sysids.Contains(system.EdsmId))
+                        {
+                            edsmidparam.Value = system.EdsmId;
+                            sectoridparam.Value = system.SectorId;
+                            nameidparam.Value = system.NameId;
+                            xparam.Value = system.X;
+                            yparam.Value = system.Y;
+                            zparam.Value = system.Z;
+                            cmd.ExecuteNonQuery();
+
+                            num++;
+
+                            if ((num % 1000) == 0)
                             {
-                                Console.Error.WriteLine($" {num}");
-                            }
+                                Console.Error.Write(".");
 
-                            Console.Error.Flush();
+                                if ((num % 64000) == 0)
+                                {
+                                    Console.Error.WriteLine($" {num}");
+                                }
+
+                                Console.Error.Flush();
+                            }
                         }
                     }
                 }
-            }
 
-            using (var cmd = conn.CreateCommand())
-            {
-                cmd.Transaction = txn;
-                cmd.CommandText = "INSERT OR REPLACE INTO Register (Id, ValueString) VALUES (@Id, @Val)";
-                cmd.Parameters.AddWithValue("@Id", "EDSMLastSystems");
-                cmd.Parameters.AddWithValue("@Val", lastdate.ToString("s"));
-                cmd.ExecuteNonQuery();
-            }
+                Console.Error.WriteLine($" {num}");
+                Console.Error.WriteLine("Updating systems");
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.Transaction = txn;
+                    cmd.CommandText = "INSERT OR REPLACE INTO Systems (EdsmId, SectorId, NameId, X, Y, Z) VALUES (@EdsmId, @SectorId, @NameId, @X, @Y, @Z)";
+                    var edsmidparam = cmd.Parameters.Add("@EdsmId", SqliteType.Integer);
+                    var sectoridparam = cmd.Parameters.Add("@SectorId", SqliteType.Integer);
+                    var nameidparam = cmd.Parameters.Add("@NameId", SqliteType.Integer);
+                    var xparam = cmd.Parameters.Add("@X", SqliteType.Integer);
+                    var yparam = cmd.Parameters.Add("@Y", SqliteType.Integer);
+                    var zparam = cmd.Parameters.Add("@Z", SqliteType.Integer);
 
-            Console.Error.WriteLine($" {num}");
-            Console.Error.WriteLine("Committing");
-            txn.Commit();
+                    num = 0;
+
+                    foreach (var system in updsystems)
+                    {
+                        if (sysids.Contains(system.EdsmId))
+                        {
+                            edsmidparam.Value = system.EdsmId;
+                            sectoridparam.Value = system.SectorId;
+                            nameidparam.Value = system.NameId;
+                            xparam.Value = system.X;
+                            yparam.Value = system.Y;
+                            zparam.Value = system.Z;
+                            cmd.ExecuteNonQuery();
+
+                            num++;
+
+                            if ((num % 1000) == 0)
+                            {
+                                Console.Error.Write(".");
+
+                                if ((num % 64000) == 0)
+                                {
+                                    Console.Error.WriteLine($" {num}");
+                                }
+
+                                Console.Error.Flush();
+                            }
+                        }
+                    }
+                }
+
+                Console.WriteLine($" {num}");
+                Console.Error.WriteLine("Deleting systems");
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.Transaction = txn;
+                    cmd.CommandText = "DELETE FROM Systems WHERE EdsmId = @EdsmId";
+                    var edsmidparam = cmd.Parameters.Add("@EdsmId", SqliteType.Integer);
+
+                    num = 0;
+
+                    foreach (var system in updsystems)
+                    {
+                        if (!sysids.Contains(system.EdsmId))
+                        {
+                            edsmidparam.Value = system.EdsmId;
+                            cmd.ExecuteNonQuery();
+
+                            num++;
+
+                            if ((num % 1000) == 0)
+                            {
+                                Console.Error.Write(".");
+
+                                if ((num % 64000) == 0)
+                                {
+                                    Console.Error.WriteLine($" {num}");
+                                }
+
+                                Console.Error.Flush();
+                            }
+                        }
+                    }
+                }
+
+                Console.WriteLine($" {num}");
+                Console.Error.WriteLine("Appending systems");
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.Transaction = txn;
+                    cmd.CommandText = "INSERT OR REPLACE INTO Systems (EdsmId, SectorId, NameId, X, Y, Z) VALUES (@EdsmId, @SectorId, @NameId, @X, @Y, @Z)";
+                    var edsmidparam = cmd.Parameters.Add("@EdsmId", SqliteType.Integer);
+                    var sectoridparam = cmd.Parameters.Add("@SectorId", SqliteType.Integer);
+                    var nameidparam = cmd.Parameters.Add("@NameId", SqliteType.Integer);
+                    var xparam = cmd.Parameters.Add("@X", SqliteType.Integer);
+                    var yparam = cmd.Parameters.Add("@Y", SqliteType.Integer);
+                    var zparam = cmd.Parameters.Add("@Z", SqliteType.Integer);
+
+                    num = 0;
+
+                    for (int i = lastedsmid; i < Systems.Count; i++)
+                    {
+                        var system = Systems[i];
+
+                        if (system != default && sysids.Contains(i))
+                        {
+                            edsmidparam.Value = system.EdsmId;
+                            sectoridparam.Value = system.SectorId;
+                            nameidparam.Value = system.NameId;
+                            xparam.Value = system.X;
+                            yparam.Value = system.Y;
+                            zparam.Value = system.Z;
+                            cmd.ExecuteNonQuery();
+
+                            num++;
+
+                            if ((num % 1000) == 0)
+                            {
+                                Console.Error.Write(".");
+
+                                if ((num % 64000) == 0)
+                                {
+                                    Console.Error.WriteLine($" {num}");
+                                }
+
+                                Console.Error.Flush();
+                            }
+                        }
+                    }
+                }
+
+                Console.Error.WriteLine($" {num}");
+                Console.Error.WriteLine("Creating indexes");
+
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.Transaction = txn;
+                    cmd.CommandText = "CREATE INDEX IF NOT EXISTS SystemsSectorName ON Systems (sectorId,nameid)";
+                    cmd.ExecuteNonQuery();
+                }
+
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.Transaction = txn;
+                    cmd.CommandText = "CREATE INDEX IF NOT EXISTS SystemsXZY ON Systems (x,z,y)";
+                    cmd.ExecuteNonQuery();
+                }
+
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.Transaction = txn;
+                    cmd.CommandText = "CREATE INDEX IF NOT EXISTS NamesName ON Names (Name)";
+                    cmd.ExecuteNonQuery();
+                }
+
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.Transaction = txn;
+                    cmd.CommandText = "CREATE INDEX IF NOT EXISTS SectorName ON Sectors (name)";
+                    cmd.ExecuteNonQuery();
+                }
+
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.Transaction = txn;
+                    cmd.CommandText = "CREATE INDEX IF NOT EXISTS SectorGridId ON Sectors (gridid)";
+                    cmd.ExecuteNonQuery();
+                }
+
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.Transaction = txn;
+                    cmd.CommandText = "INSERT OR REPLACE INTO Register (Id, ValueString) VALUES (@Id, @Val)";
+                    cmd.Parameters.AddWithValue("@Id", "EDSMLastSystems");
+                    cmd.Parameters.AddWithValue("@Val", lastdate.ToString("s"));
+                    cmd.ExecuteNonQuery();
+                }
+
+                Console.Error.WriteLine("Committing");
+                txn.Commit();
+            }
         }
 
         public void ProcessAliases(string aliaspath)
@@ -933,89 +1054,72 @@ namespace EDDiscoverySystemsDB
                 }
             }
 
-            var addaliases = new List<(int id, string system, int? mergedto)>();
-            var updaliases = new List<(int id, string system, int? mergedto)>();
-            var delaliases = new List<int>();
-            var dbaliases = new HashSet<int>();
-
-            var conn = CreateConnection();
-            conn.Open();
-
-            using (var cmd = conn.CreateCommand())
+            foreach (var selname in Selectors.Keys)
             {
-                cmd.CommandText = "SELECT edsmid, edsmid_mergedto, name FROM Aliases";
+                var addaliases = new List<(int id, string system, int? mergedto)>();
+                var updaliases = new List<(int id, string system, int? mergedto)>();
+                var delaliases = new List<int>();
+                var dbaliases = new HashSet<int>();
 
-                using var rdr = cmd.ExecuteReader();
-                while (rdr.Read())
+                var conn = CreateConnection(selname);
+                conn.Open();
+
+                using (var cmd = conn.CreateCommand())
                 {
-                    int id = rdr.GetInt32(0);
-                    int? mergedto = rdr.IsDBNull(1) ? (int?)null : rdr.GetInt32(1);
-                    string system = rdr.GetString(2);
+                    cmd.CommandText = "SELECT edsmid, edsmid_mergedto, name FROM Aliases";
 
-                    dbaliases.Add(id);
-
-                    if (!aliases.TryGetValue(id, out var alias))
+                    using var rdr = cmd.ExecuteReader();
+                    while (rdr.Read())
                     {
-                        delaliases.Add(id);
+                        int id = rdr.GetInt32(0);
+                        int? mergedto = rdr.IsDBNull(1) ? (int?)null : rdr.GetInt32(1);
+                        string system = rdr.GetString(2);
+
+                        dbaliases.Add(id);
+
+                        if (!aliases.TryGetValue(id, out var alias))
+                        {
+                            delaliases.Add(id);
+                        }
+                        else if (system != alias.system || mergedto != alias.mergedto)
+                        {
+                            updaliases.Add((id, system, mergedto));
+                        }
                     }
-                    else if (system != alias.system || mergedto != alias.mergedto)
+                }
+
+                foreach (var alias in aliases.Values)
+                {
+                    if (!dbaliases.Contains(alias.id))
                     {
-                        updaliases.Add((id, system, mergedto));
+                        addaliases.Add(alias);
                     }
                 }
-            }
 
-            foreach (var alias in aliases.Values)
-            {
-                if (!dbaliases.Contains(alias.id))
+                using var txn = conn.BeginTransaction();
+
+                using (var cmd = conn.CreateCommand())
                 {
-                    addaliases.Add(alias);
+                    cmd.Transaction = txn;
+                    cmd.CommandText = "DELETE FROM Aliases WHERE edsmid = @edsmid";
+                    var idparam = cmd.Parameters.Add("@edsmid", SqliteType.Integer);
+
+                    foreach (var id in delaliases)
+                    {
+                        idparam.Value = id;
+                        cmd.ExecuteNonQuery();
+                    }
                 }
-            }
 
-            using var txn = conn.BeginTransaction();
-
-            using (var cmd = conn.CreateCommand())
-            {
-                cmd.Transaction = txn;
-                cmd.CommandText = "DELETE FROM Aliases WHERE edsmid = @edsmid";
-                var idparam = cmd.Parameters.Add("@edsmid", SqliteType.Integer);
-
-                foreach (var id in delaliases)
+                using (var cmd = conn.CreateCommand())
                 {
-                    idparam.Value = id;
-                    cmd.ExecuteNonQuery();
-                }
-            }
+                    cmd.Transaction = txn;
+                    cmd.CommandText = "UPDATE Aliases SET name = @name, edsmid_mergedto = @edsmid_mergedto WHERE edsmid = @edsmid";
+                    var idparam = cmd.Parameters.Add("@edsmid", SqliteType.Integer);
+                    var nameparam = cmd.Parameters.Add("@name", SqliteType.Text);
+                    var mergeparam = cmd.Parameters.Add("@edsm_mergedto", SqliteType.Integer);
 
-            using (var cmd = conn.CreateCommand())
-            {
-                cmd.Transaction = txn;
-                cmd.CommandText = "UPDATE Aliases SET name = @name, edsmid_mergedto = @edsmid_mergedto WHERE edsmid = @edsmid";
-                var idparam = cmd.Parameters.Add("@edsmid", SqliteType.Integer);
-                var nameparam = cmd.Parameters.Add("@name", SqliteType.Text);
-                var mergeparam = cmd.Parameters.Add("@edsm_mergedto", SqliteType.Integer);
-
-                foreach (var (id, system, mergedto) in updaliases)
-                {
-                    idparam.Value = id;
-                    nameparam.Value = system;
-                    mergeparam.Value = (object)mergedto ?? DBNull.Value;
-                    cmd.ExecuteNonQuery();
-                }
-            }
-
-            using (var cmd = conn.CreateCommand())
-            {
-                cmd.Transaction = txn;
-                cmd.CommandText = "INSERT INTO Aliases (edsmid, name, edsmid_mergedto) VALUES (@edsmid, @name, @edsmid_mergedto)";
-                var idparam = cmd.Parameters.Add("@edsmid", SqliteType.Integer);
-                var nameparam = cmd.Parameters.Add("@name", SqliteType.Text);
-                var mergeparam = cmd.Parameters.Add("@edsmid_mergedto", SqliteType.Integer);
-
-                foreach (var (id, system, mergedto) in addaliases)
-                {
-                    if (system != null)
+                    foreach (var (id, system, mergedto) in updaliases)
                     {
                         idparam.Value = id;
                         nameparam.Value = system;
@@ -1023,18 +1127,38 @@ namespace EDDiscoverySystemsDB
                         cmd.ExecuteNonQuery();
                     }
                 }
-            }
 
-            using (var cmd = conn.CreateCommand())
-            {
-                cmd.Transaction = txn;
-                cmd.CommandText = "INSERT OR REPLACE INTO Register (Id, ValueString) VALUES (@Id, @Val)";
-                cmd.Parameters.AddWithValue("@Id", "EDSMAliasLastDownloadTime");
-                cmd.Parameters.AddWithValue("@Val", aliasesdate.ToString("O"));
-                cmd.ExecuteNonQuery();
-            }
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.Transaction = txn;
+                    cmd.CommandText = "INSERT INTO Aliases (edsmid, name, edsmid_mergedto) VALUES (@edsmid, @name, @edsmid_mergedto)";
+                    var idparam = cmd.Parameters.Add("@edsmid", SqliteType.Integer);
+                    var nameparam = cmd.Parameters.Add("@name", SqliteType.Text);
+                    var mergeparam = cmd.Parameters.Add("@edsmid_mergedto", SqliteType.Integer);
 
-            txn.Commit();
+                    foreach (var (id, system, mergedto) in addaliases)
+                    {
+                        if (system != null)
+                        {
+                            idparam.Value = id;
+                            nameparam.Value = system;
+                            mergeparam.Value = (object)mergedto ?? DBNull.Value;
+                            cmd.ExecuteNonQuery();
+                        }
+                    }
+                }
+
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.Transaction = txn;
+                    cmd.CommandText = "INSERT OR REPLACE INTO Register (Id, ValueString) VALUES (@Id, @Val)";
+                    cmd.Parameters.AddWithValue("@Id", "EDSMAliasLastDownloadTime");
+                    cmd.Parameters.AddWithValue("@Val", aliasesdate.ToString("O"));
+                    cmd.ExecuteNonQuery();
+                }
+
+                txn.Commit();
+            }
         }
     }
 }
