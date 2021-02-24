@@ -927,7 +927,10 @@ namespace EDDiscoverySystemsDB
                     }
                 }
 
-                aliases[id] = (id, system, mergedto);
+                if (mergedto != null)
+                {
+                    aliases[id] = (id, system, mergedto);
+                }
             }
 
             var addaliases = new List<(int id, string system, int? mergedto)>();
