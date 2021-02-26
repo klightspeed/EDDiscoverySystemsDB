@@ -493,6 +493,21 @@ namespace EDDiscoverySystemsDB
             }
         }
 
+        public void SaveNames(string csvpath)
+        {
+            using (var stream = File.Open(csvpath + ".tmp", FileMode.Create, FileAccess.Write, FileShare.Read))
+            {
+                using var writer = new StreamWriter(stream);
+                writer.WriteLine("ID,Name");
+                foreach (var kvp in SectorNames)
+                {
+                    writer.WriteLine($"{kvp.Value},{kvp.Key}");
+                }
+            }
+
+            File.Move(csvpath + ".tmp", csvpath);
+        }
+
         public void DownloadSystems(string gzpath)
         {
             var req = WebRequest.CreateHttp("https://www.edsm.net/dump/systemsWithCoordinates.json.gz");

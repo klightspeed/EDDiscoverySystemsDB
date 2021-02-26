@@ -1,4 +1,5 @@
 ﻿using System;
+using System.IO;
 
 namespace EDDiscoverySystemsDB
 {
@@ -12,7 +13,7 @@ namespace EDDiscoverySystemsDB
             var aliaspath = args.Length >= 3 ? args[2] : null;
             var namespath = args.Length >= 4 ? args[3] : null;
 
-            if (!string.IsNullOrEmpty(namespath))
+            if (!string.IsNullOrEmpty(namespath) && File.Exists(namespath))
             {
                 sysdb.LoadNames(namespath);
             }
@@ -28,6 +29,11 @@ namespace EDDiscoverySystemsDB
                 Console.Error.WriteLine("Processing aliases");
                 sysdb.ProcessAliases(aliaspath);
                 Console.Error.WriteLine("Done");
+            }
+
+            if (!string.IsNullOrEmpty(namespath))
+            {
+                sysdb.SaveNames(namespath);
             }
         }
     }
