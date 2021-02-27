@@ -237,9 +237,9 @@ namespace EDDiscoverySystemsDB
                     SectorList[sector.Id] = sector;
                     CurrentSectors.Add(sector.Id);
 
-                    if (sector.Id >= 100000)
+                    if (sector.Id < 0)
                     {
-                        var nameid = sector.Id / 100000;
+                        var nameid = -sector.Id / 10000;
                         var name = sector.Name;
 
                         if (!SectorNames.ContainsKey(name))
