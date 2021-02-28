@@ -505,7 +505,7 @@ namespace EDDiscoverySystemsDB
                 }
             }
 
-            File.Move(csvpath + ".tmp", csvpath);
+            File.Move(csvpath + ".tmp", csvpath, true);
         }
 
         public void DownloadSystems(string gzpath)
