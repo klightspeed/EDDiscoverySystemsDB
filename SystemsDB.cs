@@ -353,7 +353,7 @@ namespace EDDiscoverySystemsDB
                         X = rdr.GetInt32(3),
                         Y = rdr.GetInt32(4),
                         Z = rdr.GetInt32(5),
-                        Info = rdr.GetInt32(6)
+                        Info = rdr.IsDBNull(6) ? 0 : rdr.GetInt32(6)
                     };
 
                     Systems[system.SystemAddress] = system;
