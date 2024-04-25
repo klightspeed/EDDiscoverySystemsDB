@@ -328,7 +328,7 @@ namespace EDDiscoverySystemsDB
 
                 while (rdr.Read())
                 {
-                    var id = rdr.GetInt32(0);
+                    var id = rdr.GetInt64(0);
                     Names[id] = rdr.GetString(1);
                     OrigNames[id] = Names[id];
                 }
