@@ -1,0 +1,66 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace EDDiscoverySystemsDB
+{
+    public enum EDStar
+    {
+        Unknown = 0,
+        O = 1,
+        B,
+        A,
+        F,
+        G,
+        K,
+        M,
+        L,
+        T,
+        Y,
+        AeBe,
+        TTS,
+        W,
+        WN,
+        WNC,
+        WC,
+        WO,
+        CS,
+        C,
+        CN,
+        CJ,
+        CHd,
+        MS,
+        S,
+        D,
+        DA,
+        DAB,
+        DAO,
+        DAZ,
+        DAV,
+        DB,
+        DBZ,
+        DBV,
+        DO,
+        DOV,
+        DQ,
+        DC,
+        DCV,
+        DX,
+        N,
+        H,
+        X,
+        A_BlueWhiteSuperGiant,
+        F_WhiteSuperGiant,
+        M_RedSuperGiant,
+        M_RedGiant,
+        K_OrangeGiant,
+        RoguePlanet,
+        Nebula,
+        StellarRemnantNebula,
+        SuperMassiveBlackHole,
+        B_BlueWhiteSuperGiant,
+        G_WhiteSuperGiant,
+    };
+}

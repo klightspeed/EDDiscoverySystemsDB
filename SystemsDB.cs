@@ -16,7 +16,7 @@ namespace EDDiscoverySystemsDB
     {
         public string BasePath { get; set; } = ".";
 
-        private readonly HashSet<string> Surveys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        private static readonly HashSet<string> Surveys = new(StringComparer.OrdinalIgnoreCase)
         {
             "2MASS",
             "HD",
@@ -40,7 +40,7 @@ namespace EDDiscoverySystemsDB
             "UGCS"
         };
 
-        private readonly int[] GridZ = new[]
+        private static readonly int[] GridZ = new[]
         {
              0,
              2,
@@ -69,7 +69,7 @@ namespace EDDiscoverySystemsDB
             69
         };
 
-        private readonly int[] GridX = new[]
+        private static readonly int[] GridX = new[]
         {
              0,
              4,
@@ -92,27 +92,85 @@ namespace EDDiscoverySystemsDB
             39
         };
 
-        private readonly Dictionary<(string, int), Sector> Sectors = new Dictionary<(string, int), Sector>();
+        private static readonly Dictionary<string, EDStar> SpanshToEDStar = new(StringComparer.OrdinalIgnoreCase)
+        {
+            { "O (Blue-White) Star", EDStar.O },
+            { "B (Blue-White) Star", EDStar.B },
+            { "A (Blue-White) Star", EDStar.A },
+            { "F (White) Star", EDStar.F },
+            { "G (White-Yellow) Star", EDStar.G },
+            { "K (Yellow-Orange) Star", EDStar.K },
+            { "M (Red dwarf) Star", EDStar.M },
+            { "L (Brown dwarf) Star", EDStar.L },
+            { "T (Brown dwarf) Star", EDStar.T },
+            { "Y (Brown dwarf) Star", EDStar.Y },
+            { "Herbig Ae Be Star", EDStar.AeBe },
+            { "Herbig Ae/Be Star", EDStar.AeBe },
+            { "T Tauri Star", EDStar.TTS },
+            { "Wolf-Rayet Star", EDStar.W },
+            { "Wolf-Rayet N Star", EDStar.WN },
+            { "Wolf-Rayet NC Star", EDStar.WNC },
+            { "Wolf-Rayet C Star", EDStar.WC },
+            { "Wolf-Rayet O Star", EDStar.WO },
+            { "C Star", EDStar.C },
+            { "CN Star", EDStar.CN },
+            { "CJ Star", EDStar.CJ },
+            { "MS-type Star", EDStar.MS },
+            { "S-type Star", EDStar.S },
+            { "White Dwarf (D) Star", EDStar.D },
+            { "White Dwarf (DA) Star", EDStar.DA },
+            { "White Dwarf (DAB) Star", EDStar.DAB },
+            { "White Dwarf (DAZ) Star", EDStar.DAZ },
+            { "White Dwarf (DAV) Star", EDStar.DAV },
+            { "White Dwarf (DB) Star", EDStar.DB },
+            { "White Dwarf (DBZ) Star", EDStar.DBZ },
+            { "White Dwarf (DBV) Star", EDStar.DBV },
+            { "White Dwarf (DQ) Star", EDStar.DQ },
+            { "White Dwarf (DC) Star", EDStar.DC },
+            { "White Dwarf (DCV) Star", EDStar.DCV },
+            { "Neutron Star", EDStar.N },
+            { "Black Hole", EDStar.H },
+            { "A (Blue-White super giant) Star", EDStar.A_BlueWhiteSuperGiant },
+            { "F (White super giant) Star", EDStar.F_WhiteSuperGiant },
+            { "M (Red super giant) Star", EDStar.M_RedSuperGiant },
+            { "M (Red giant) Star", EDStar.M_RedGiant},
+            { "K (Yellow-Orange giant) Star", EDStar.K_OrangeGiant },
+            { "Supermassive Black Hole", EDStar.SuperMassiveBlackHole },
+            { "B (Blue-White super giant) Star", EDStar.B_BlueWhiteSuperGiant },
+            { "G (White-Yellow super giant) Star", EDStar.G_WhiteSuperGiant },
+        };
+
+        private readonly Dictionary<(string, int), Sector> Sectors = new();
         
-        private readonly Dictionary<int, Sector> SectorList = new Dictionary<int, Sector>();
+        private readonly Dictionary<int, Sector> SectorList = new();
 
-        private readonly Dictionary<string, int> SectorNames = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, int> SectorNames = new(StringComparer.OrdinalIgnoreCase);
 
-        private readonly HashSet<int> CurrentSectors = new HashSet<int>();
+        private readonly HashSet<int> CurrentSectors = new();
 
-        private readonly Dictionary<int, string> Names = new Dictionary<int, string>();
+        private readonly Dictionary<long, string> Names = new();
 
-        private readonly Dictionary<int, string> OrigNames = new Dictionary<int, string>();
+        private readonly Dictionary<long, string> OrigNames = new();
 
-        private readonly List<SystemEntry> Systems = new List<SystemEntry>();
+        private readonly Dictionary<long, SystemEntry> Systems;
 
-        private readonly Dictionary<string, string> Selectors = new Dictionary<string, string>
+        private readonly int EstimatedSystemsCount;
+
+        private readonly HashSet<long> PermitSystems = new();
+
+        private static readonly Dictionary<string, string> Selectors = new()
         {
             ["All"] = "All",
             ["Bubble"] = "810",
             ["ExtendedBubble"] = "608,609,610,611,612,708,709,710,711,712,808,809,810,811,812,908,909,910,911,912,1008,1009,1010,1011,1012",
             ["BubbleColonia"] = "608,609,610,611,612,708,709,710,711,712,808,809,810,811,812,908,909,910,911,912,1008,1009,1010,1011,1012,1108,1109,1110,1207,1208,1209,1306,1307,1308,1405,1406,1407,1504,1505,1603,1604,1703"
         };
+
+        public SystemsDB(int estsyscount)
+        {
+            Systems = new(estsyscount);
+            EstimatedSystemsCount = estsyscount;
+        }
 
         private SqliteConnection CreateConnection(string selname)
         {
@@ -166,13 +224,14 @@ namespace EDDiscoverySystemsDB
             using (var cmd = conn.CreateCommand())
             {
                 cmd.CommandText =
-                    "CREATE TABLE IF NOT EXISTS Systems (" +
+                    "CREATE TABLE IF NOT EXISTS SystemTable (" +
                         "edsmid INTEGER PRIMARY KEY NOT NULL , " +
                         "sectorid INTEGER, " +
                         "nameid INTEGER, " +
                         "x INTEGER, " +
                         "y INTEGER, " +
-                        "z INTEGER" +
+                        "z INTEGER, " +
+                        "info INTEGER" +
                     ")";
                 cmd.ExecuteNonQuery();
             }
@@ -200,7 +259,22 @@ namespace EDDiscoverySystemsDB
 
             using (var cmd = conn.CreateCommand())
             {
-                cmd.CommandText = "INSERT OR IGNORE INTO Register (ID, ValueInt) VALUES ('DBVer', 200)";
+                cmd.CommandText =
+                    "CREATE TABLE IF NOT EXISTS PermitSystems (" +
+                        "edsmid INTEGER PRIMARY KEY NOT NULL" +
+                    ")";
+                cmd.ExecuteNonQuery();
+            }
+
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = "INSERT OR IGNORE INTO Register (ID, ValueInt) VALUES ('DBVer', 213)";
+                cmd.ExecuteNonQuery();
+            }
+
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = "INSERT OR IGNORE INTO Register (ID, ValueString) VALUES ('DBSource', 'SPANSH')";
                 cmd.ExecuteNonQuery();
             }
 
@@ -210,7 +284,6 @@ namespace EDDiscoverySystemsDB
                 cmd.Parameters.AddWithValue("@GridIds", Selectors.TryGetValue(selname, out var gridids) ? gridids : "All");
                 cmd.ExecuteNonQuery();
             }
-
         }
 
         private void LoadExisting()
@@ -269,7 +342,7 @@ namespace EDDiscoverySystemsDB
             Console.Error.WriteLine("Loading systems");
             using (var cmd = conn.CreateCommand())
             {
-                cmd.CommandText = "SELECT EdsmId, SectorId, NameId, X, Y, Z FROM Systems";
+                cmd.CommandText = "SELECT EdsmId, SectorId, NameId, X, Y, Z, Info FROM SystemTable";
 
                 using var rdr = cmd.ExecuteReader();
 
@@ -277,27 +350,16 @@ namespace EDDiscoverySystemsDB
                 {
                     var system = new SystemEntry
                     {
-                        EdsmId = rdr.GetInt32(0),
+                        SystemAddress = rdr.GetInt64(0),
                         SectorId = rdr.GetInt32(1),
                         NameId = rdr.GetInt64(2),
                         X = rdr.GetInt32(3),
                         Y = rdr.GetInt32(4),
-                        Z = rdr.GetInt32(5)
+                        Z = rdr.GetInt32(5),
+                        Info = rdr.GetInt32(6)
                     };
 
-                    while (Systems.Count < system.EdsmId)
-                    {
-                        Systems.Add(default);
-                    }
-
-                    if (Systems.Count == system.EdsmId)
-                    {
-                        Systems.Add(system);
-                    }
-                    else
-                    {
-                        Systems[system.EdsmId] = system;
-                    }
+                    Systems[system.SystemAddress] = system;
 
                     num++;
 
@@ -312,6 +374,19 @@ namespace EDDiscoverySystemsDB
 
                         Console.Error.Flush();
                     }
+                }
+            }
+
+            Console.Error.WriteLine("Loading permit systems");
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = "SELECT edsmid FROM PermitSystems";
+
+                using var rdr = cmd.ExecuteReader();
+
+                while (rdr.Read())
+                {
+                    PermitSystems.Add(rdr.GetInt64(0));
                 }
             }
 
@@ -386,10 +461,10 @@ namespace EDDiscoverySystemsDB
             return false;
         }
 
-        private int GetNameId(string name, int edsmid)
+        private long GetNameId(string name, long systemAddress)
         {
-            Names[edsmid] = name;
-            return edsmid;
+            Names[systemAddress] = name;
+            return systemAddress;
         }
 
         private void ProcessSystemName(ref SystemEntry system, string name)
@@ -403,7 +478,7 @@ namespace EDDiscoverySystemsDB
                 var l2 = (mid / 26) % 26;
                 var l3 = (mid / 26 / 26) % 26;
                 var n1 = mid / 26 / 26 / 26;
-                system.NameId = n2 + (n1 << 16) + (masscode << 24) + ((long)(l3 + 1) << 28) + ((long)(l2 + 1) << 33) + ((long)(l1 + 1) << 38) + (1L << 47);
+                system = system with { NameId = n2 + (n1 << 16) + (masscode << 24) + ((long)(l3 + 1) << 28) + ((long)(l2 + 1) << 33) + ((long)(l1 + 1) << 38) + (1L << 47) };
             }
             else
             {
@@ -417,23 +492,23 @@ namespace EDDiscoverySystemsDB
                     if (long.TryParse(num, out var v) && v < 0x3fffffffff)
                     {
                         sectorname = string.Join(" ", nameparts[..^1]);
-                        system.NameId = v + (1L << 46) + ((long)(dashpos + 1) << 38) + ((long)num.Length << 42);
+                        system = system with { NameId = v + (1L << 46) + ((long)(dashpos + 1) << 38) + ((long)num.Length << 42) };
                     }
                     else if (Surveys.Contains(nameparts[0]))
                     {
                         sectorname = nameparts[0];
-                        system.NameId = GetNameId(string.Join(" ", nameparts[1..]), system.EdsmId);
+                        system = system with { NameId = GetNameId(string.Join(" ", nameparts[1..]), system.SystemAddress) };
                     }
                     else
                     {
                         sectorname = "NoSectorName";
-                        system.NameId = GetNameId(name, system.EdsmId);
+                        system = system with { NameId = GetNameId(name, system.SystemAddress) };
                     }
                 }
                 else
                 {
                     sectorname = "NoSectorName";
-                    system.NameId = GetNameId(name, system.EdsmId);
+                    system = system with { NameId = GetNameId(name, system.SystemAddress) };
                 }
             }
 
@@ -458,7 +533,7 @@ namespace EDDiscoverySystemsDB
                 Sectors[(sectorname.ToLowerInvariant(), gridid)] = sector;
             }
 
-            system.SectorId = sector.Id;
+            system = system with { SectorId = sector.Id };
         }
 
         private (int x, int y, int z) GetCoords(ref Utf8JsonReader jrdr)
@@ -499,22 +574,13 @@ namespace EDDiscoverySystemsDB
             {
                 using var writer = new StreamWriter(stream);
                 writer.WriteLine("ID,Name");
-                foreach (var kvp in SectorNames)
+                foreach (var kvp in SectorNames.OrderBy(e => e.Key))
                 {
                     writer.WriteLine($"{kvp.Value},{kvp.Key}");
                 }
             }
 
             File.Move(csvpath + ".tmp", csvpath, true);
-        }
-
-        public void DownloadSystems(string gzpath)
-        {
-            var req = WebRequest.CreateHttp("https://www.edsm.net/dump/systemsWithCoordinates.json.gz");
-            using var resp = req.GetResponse();
-            using var respstream = resp.GetResponseStream();
-            using var stream = File.Open(gzpath, FileMode.Create, FileAccess.Write, FileShare.Read);
-            respstream.CopyTo(stream);
         }
 
         public void LoadSystems(string gzpath)
@@ -525,11 +591,12 @@ namespace EDDiscoverySystemsDB
             int pos = 0;
             int end = 0;
             bool eof = false;
-            var addsystems = new List<SystemEntry>();
+            var addsystems = new List<SystemEntry>(EstimatedSystemsCount - Systems.Count);
             var updsystems = new List<SystemEntry>();
+            var addPermits = new HashSet<long>();
+            var delPermits = new HashSet<long>();
             var lastsectorid = SectorList.Keys.OrderByDescending(e => e).FirstOrDefault();
             var nameids = Names.Keys.ToHashSet();
-            var lastedsmid = Systems.Count;
             int num = 0;
             var lastdate = DateTime.MinValue;
 
@@ -586,8 +653,13 @@ namespace EDDiscoverySystemsDB
                         throw new InvalidOperationException();
                     }
 
-                    var system = new SystemEntry();
                     string sysname = null;
+                    string mainStar = null;
+                    long sysaddr = 0;
+                    int x = 0;
+                    int y = 0;
+                    int z = 0;
+                    bool permit = false;
                     DateTime date = default;
 
                     while (jrdr.Read() && jrdr.TokenType != JsonTokenType.EndObject)
@@ -597,12 +669,32 @@ namespace EDDiscoverySystemsDB
 
                         switch ((name, jrdr.TokenType))
                         {
-                            case ("id", JsonTokenType.Number): system.EdsmId = jrdr.GetInt32(); break;
-                            case ("id64", JsonTokenType.Number): system.SystemAddress = jrdr.GetInt64(); break;
+                            case ("id64", JsonTokenType.Number): sysaddr = jrdr.GetInt64(); break;
                             case ("name", JsonTokenType.String): sysname = jrdr.GetString(); break;
-                            case ("coords", JsonTokenType.StartObject): (system.X, system.Y, system.Z) = GetCoords(ref jrdr); break;
+                            case ("coords", JsonTokenType.StartObject): (x, y, z) = GetCoords(ref jrdr); break;
                             case ("date", JsonTokenType.String): date = DateTime.Parse(jrdr.GetString()); break;
+                            case ("updateTime", JsonTokenType.String): date = DateTime.Parse(jrdr.GetString()); break;
+                            case ("needsPermit", JsonTokenType.String): permit = jrdr.GetBoolean(); break;
+                            case ("mainStar", JsonTokenType.String): mainStar = jrdr.GetString(); break;
                         }
+                    }
+
+                    var system = new SystemEntry
+                    {
+                        SystemAddress = sysaddr,
+                        X = x,
+                        Y = y,
+                        Z = z,
+                        Info = mainStar != null && SpanshToEDStar.TryGetValue(mainStar, out var edstar) ? (int)edstar : 0
+                    };
+
+                    if (permit && !PermitSystems.Contains(sysaddr))
+                    {
+                        addPermits.Add(sysaddr);
+                    }
+                    else if (!permit && PermitSystems.Contains(sysaddr))
+                    {
+                        delPermits.Add(sysaddr);
                     }
 
                     if (date > lastdate)
@@ -612,32 +704,15 @@ namespace EDDiscoverySystemsDB
 
                     ProcessSystemName(ref system, sysname);
 
-                    while (Systems.Count < system.EdsmId)
+                    if (!Systems.TryGetValue(system.SystemAddress, out var oldsys))
                     {
-                        Systems.Add(default);
+                        Systems[system.SystemAddress] = system;
+                        addsystems.Add(system);
                     }
-
-                    if (Systems.Count == system.EdsmId)
+                    else if (system != oldsys)
                     {
-                        Systems.Add(system);
-                    }
-                    else if (Systems[system.EdsmId].EdsmId == 0)
-                    {
-                        Systems[system.EdsmId] = system;
-
-                        if (system.EdsmId <= lastedsmid)
-                        {
-                            addsystems.Add(system);
-                        }
-                    }
-                    else
-                    {
-                        var oldsys = Systems[system.EdsmId];
-                        if (system != oldsys)
-                        {
-                            Systems[system.EdsmId] = system;
-                            updsystems.Add(system);
-                        }
+                        Systems[system.SystemAddress] = system;
+                        updsystems.Add(system);
                     }
                 }
 
@@ -690,8 +765,9 @@ namespace EDDiscoverySystemsDB
                 var system = addsystems[i];
                 if (sectormap.TryGetValue(system.SectorId, out var newsectorid))
                 {
-                    system.SectorId = newsectorid;
+                    system = system with { SectorId = newsectorid };
                     addsystems[i] = system;
+                    Systems[system.SystemAddress] = system;
                 }
             }
 
@@ -700,19 +776,26 @@ namespace EDDiscoverySystemsDB
                 var system = updsystems[i];
                 if (sectormap.TryGetValue(system.SectorId, out var newsectorid))
                 {
-                    system.SectorId = newsectorid;
+                    system = system with { SectorId = newsectorid };
                     updsystems[i] = system;
+                    Systems[system.SystemAddress] = system;
                 }
             }
 
-            for (int i = lastedsmid + 1; i < Systems.Count; i++)
+            var updSectorIds = new List<SystemEntry>();
+
+            foreach (var system in Systems.Values)
             {
-                var system = Systems[i];
-                if (system.EdsmId == i && sectormap.TryGetValue(system.SectorId, out var newsectorid))
+                if (sectormap.TryGetValue(system.SectorId, out var newsectorid) && newsectorid != system.SectorId)
                 {
-                    system.SectorId = newsectorid;
-                    Systems[i] = system;
+                    var updsystem = system with { SectorId = newsectorid };
+                    updSectorIds.Add(updsystem);
                 }
+            }
+
+            foreach (var system in updSectorIds)
+            {
+                Systems[system.SystemAddress] = system;
             }
 
             foreach (var selkvp in Selectors)
@@ -732,7 +815,7 @@ namespace EDDiscoverySystemsDB
                     gridids = SectorList.Values.Select(e => e.GridId).Distinct().ToHashSet();
                 }
 
-                var sysids = Systems.Where(e => SectorList.TryGetValue(e.SectorId, out var sector) && gridids.Contains(sector.GridId)).Select(e => e.EdsmId).ToHashSet();
+                var sysids = Systems.Values.Where(e => SectorList.TryGetValue(e.SectorId, out var sector) && gridids.Contains(sector.GridId)).Select(e => e.SystemAddress).ToHashSet();
 
                 Console.Error.WriteLine("Saving sectors");
                 using var conn = CreateConnection(selkvp.Key);
@@ -816,29 +899,31 @@ namespace EDDiscoverySystemsDB
                     cmd.ExecuteNonQuery();
                 }
 
-                Console.Error.WriteLine("Saving inserted systems");
+                Console.Error.WriteLine("Adding systems");
                 using (var cmd = conn.CreateCommand())
                 {
                     cmd.Transaction = txn;
-                    cmd.CommandText = "INSERT OR REPLACE INTO Systems (EdsmId, SectorId, NameId, X, Y, Z) VALUES (@EdsmId, @SectorId, @NameId, @X, @Y, @Z)";
-                    var edsmidparam = cmd.Parameters.Add("@EdsmId", SqliteType.Integer);
+                    cmd.CommandText = "INSERT OR REPLACE INTO SystemTable (EdsmId, SectorId, NameId, X, Y, Z, Info) VALUES (@Id, @SectorId, @NameId, @X, @Y, @Z, @Info)";
+                    var idparam = cmd.Parameters.Add("@Id", SqliteType.Integer);
                     var sectoridparam = cmd.Parameters.Add("@SectorId", SqliteType.Integer);
                     var nameidparam = cmd.Parameters.Add("@NameId", SqliteType.Integer);
                     var xparam = cmd.Parameters.Add("@X", SqliteType.Integer);
                     var yparam = cmd.Parameters.Add("@Y", SqliteType.Integer);
                     var zparam = cmd.Parameters.Add("@Z", SqliteType.Integer);
+                    var infoparam = cmd.Parameters.Add("@Info", SqliteType.Integer);
 
                     num = 0;
                     foreach (var system in addsystems)
                     {
-                        if (sysids.Contains(system.EdsmId))
+                        if (sysids.Contains(system.SystemAddress))
                         {
-                            edsmidparam.Value = system.EdsmId;
+                            idparam.Value = system.SystemAddress;
                             sectoridparam.Value = system.SectorId;
                             nameidparam.Value = system.NameId;
                             xparam.Value = system.X;
                             yparam.Value = system.Y;
                             zparam.Value = system.Z;
+                            infoparam.Value = system.Info == 0 ? DBNull.Value : system.Info;
                             cmd.ExecuteNonQuery();
 
                             num++;
@@ -863,106 +948,28 @@ namespace EDDiscoverySystemsDB
                 using (var cmd = conn.CreateCommand())
                 {
                     cmd.Transaction = txn;
-                    cmd.CommandText = "INSERT OR REPLACE INTO Systems (EdsmId, SectorId, NameId, X, Y, Z) VALUES (@EdsmId, @SectorId, @NameId, @X, @Y, @Z)";
-                    var edsmidparam = cmd.Parameters.Add("@EdsmId", SqliteType.Integer);
+                    cmd.CommandText = "INSERT OR REPLACE INTO SystemTable (EdsmId, SectorId, NameId, X, Y, Z, Info) VALUES (@Id, @SectorId, @NameId, @X, @Y, @Z, @Info)";
+                    var idparam = cmd.Parameters.Add("@Id", SqliteType.Integer);
                     var sectoridparam = cmd.Parameters.Add("@SectorId", SqliteType.Integer);
                     var nameidparam = cmd.Parameters.Add("@NameId", SqliteType.Integer);
                     var xparam = cmd.Parameters.Add("@X", SqliteType.Integer);
                     var yparam = cmd.Parameters.Add("@Y", SqliteType.Integer);
                     var zparam = cmd.Parameters.Add("@Z", SqliteType.Integer);
+                    var infoparam = cmd.Parameters.Add("@Info", SqliteType.Integer);
 
                     num = 0;
 
                     foreach (var system in updsystems)
                     {
-                        if (sysids.Contains(system.EdsmId))
+                        if (sysids.Contains(system.SystemAddress))
                         {
-                            edsmidparam.Value = system.EdsmId;
+                            idparam.Value = system.SystemAddress;
                             sectoridparam.Value = system.SectorId;
                             nameidparam.Value = system.NameId;
                             xparam.Value = system.X;
                             yparam.Value = system.Y;
                             zparam.Value = system.Z;
-                            cmd.ExecuteNonQuery();
-
-                            num++;
-
-                            if ((num % 1000) == 0)
-                            {
-                                Console.Error.Write(".");
-
-                                if ((num % 64000) == 0)
-                                {
-                                    Console.Error.WriteLine($" {num}");
-                                }
-
-                                Console.Error.Flush();
-                            }
-                        }
-                    }
-                }
-
-                Console.WriteLine($" {num}");
-                Console.Error.WriteLine("Deleting systems");
-                using (var cmd = conn.CreateCommand())
-                {
-                    cmd.Transaction = txn;
-                    cmd.CommandText = "DELETE FROM Systems WHERE EdsmId = @EdsmId";
-                    var edsmidparam = cmd.Parameters.Add("@EdsmId", SqliteType.Integer);
-
-                    num = 0;
-
-                    foreach (var system in updsystems)
-                    {
-                        if (!sysids.Contains(system.EdsmId))
-                        {
-                            edsmidparam.Value = system.EdsmId;
-                            cmd.ExecuteNonQuery();
-
-                            num++;
-
-                            if ((num % 1000) == 0)
-                            {
-                                Console.Error.Write(".");
-
-                                if ((num % 64000) == 0)
-                                {
-                                    Console.Error.WriteLine($" {num}");
-                                }
-
-                                Console.Error.Flush();
-                            }
-                        }
-                    }
-                }
-
-                Console.WriteLine($" {num}");
-                Console.Error.WriteLine("Appending systems");
-                using (var cmd = conn.CreateCommand())
-                {
-                    cmd.Transaction = txn;
-                    cmd.CommandText = "INSERT OR REPLACE INTO Systems (EdsmId, SectorId, NameId, X, Y, Z) VALUES (@EdsmId, @SectorId, @NameId, @X, @Y, @Z)";
-                    var edsmidparam = cmd.Parameters.Add("@EdsmId", SqliteType.Integer);
-                    var sectoridparam = cmd.Parameters.Add("@SectorId", SqliteType.Integer);
-                    var nameidparam = cmd.Parameters.Add("@NameId", SqliteType.Integer);
-                    var xparam = cmd.Parameters.Add("@X", SqliteType.Integer);
-                    var yparam = cmd.Parameters.Add("@Y", SqliteType.Integer);
-                    var zparam = cmd.Parameters.Add("@Z", SqliteType.Integer);
-
-                    num = 0;
-
-                    for (int i = lastedsmid; i < Systems.Count; i++)
-                    {
-                        var system = Systems[i];
-
-                        if (system != default && sysids.Contains(i))
-                        {
-                            edsmidparam.Value = system.EdsmId;
-                            sectoridparam.Value = system.SectorId;
-                            nameidparam.Value = system.NameId;
-                            xparam.Value = system.X;
-                            yparam.Value = system.Y;
-                            zparam.Value = system.Z;
+                            infoparam.Value = system.Info == 0 ? DBNull.Value : system.Info;
                             cmd.ExecuteNonQuery();
 
                             num++;
@@ -983,19 +990,81 @@ namespace EDDiscoverySystemsDB
                 }
 
                 Console.Error.WriteLine($" {num}");
+                Console.Error.WriteLine("Deleting systems");
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.Transaction = txn;
+                    cmd.CommandText = "DELETE FROM SystemTable WHERE EdsmId = @Id";
+                    var idparam = cmd.Parameters.Add("@Id", SqliteType.Integer);
+
+                    num = 0;
+
+                    foreach (var system in updsystems)
+                    {
+                        if (!sysids.Contains(system.SystemAddress))
+                        {
+                            idparam.Value = system.SystemAddress;
+                            cmd.ExecuteNonQuery();
+
+                            num++;
+
+                            if ((num % 1000) == 0)
+                            {
+                                Console.Error.Write(".");
+
+                                if ((num % 64000) == 0)
+                                {
+                                    Console.Error.WriteLine($" {num}");
+                                }
+
+                                Console.Error.Flush();
+                            }
+                        }
+                    }
+                }
+
+                Console.Error.WriteLine($" {num}");
+                Console.Error.WriteLine("Adding new permit systems");
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.Transaction = txn;
+                    cmd.CommandText = "INSERT OR REPLACE INTO PermitSystems (edsmid) VALUES (@Id)";
+                    var idparam = cmd.Parameters.Add("@Id", SqliteType.Integer);
+
+                    foreach (var sysaddr in addPermits)
+                    {
+                        idparam.Value = sysaddr;
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+
+                Console.Error.WriteLine("Removing deleted permit systems");
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.Transaction = txn;
+                    cmd.CommandText = "DELETE FROM PermitSystems WHERE edsmid = @Id";
+                    var idparam = cmd.Parameters.Add("@Id", SqliteType.Integer);
+
+                    foreach (var sysaddr in delPermits)
+                    {
+                        idparam.Value = sysaddr;
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+
                 Console.Error.WriteLine("Creating indexes");
 
                 using (var cmd = conn.CreateCommand())
                 {
                     cmd.Transaction = txn;
-                    cmd.CommandText = "CREATE INDEX IF NOT EXISTS SystemsSectorName ON Systems (sectorId,nameid)";
+                    cmd.CommandText = "CREATE INDEX IF NOT EXISTS SystemsSectorName ON SystemTable (sectorId,nameid)";
                     cmd.ExecuteNonQuery();
                 }
 
                 using (var cmd = conn.CreateCommand())
                 {
                     cmd.Transaction = txn;
-                    cmd.CommandText = "CREATE INDEX IF NOT EXISTS SystemsXZY ON Systems (x,z,y)";
+                    cmd.CommandText = "CREATE INDEX IF NOT EXISTS SystemsXZY ON SystemTable (x,z,y)";
                     cmd.ExecuteNonQuery();
                 }
 
@@ -1030,148 +1099,6 @@ namespace EDDiscoverySystemsDB
                 }
 
                 Console.Error.WriteLine("Committing");
-                txn.Commit();
-            }
-        }
-
-        public void ProcessAliases(string aliaspath)
-        {
-            var aliasesdate = File.GetLastWriteTimeUtc(aliaspath);
-            var aliases = new Dictionary<int, (int id, string system, int? mergedto)>();
-            var aliasdata = File.ReadAllBytes(aliaspath);
-            var jrdr = new Utf8JsonReader(aliasdata);
-            jrdr.Read();
-            Debug.Assert(jrdr.TokenType == JsonTokenType.StartArray);
-
-            while (jrdr.Read() && jrdr.TokenType != JsonTokenType.EndArray)
-            {
-                Debug.Assert(jrdr.TokenType == JsonTokenType.StartObject);
-                string system = null;
-                int id = 0;
-                int? mergedto = null;
-
-                while (jrdr.Read() && jrdr.TokenType != JsonTokenType.EndObject)
-                {
-                    Debug.Assert(jrdr.TokenType == JsonTokenType.PropertyName);
-                    var name = jrdr.GetString();
-                    jrdr.Read();
-                    switch ((name, jrdr.TokenType))
-                    {
-                        case ("system", JsonTokenType.String): system = jrdr.GetString(); break;
-                        case ("id", JsonTokenType.Number): id = jrdr.GetInt32(); break;
-                        case ("mergedTo", JsonTokenType.Number): mergedto = jrdr.GetInt32(); break;
-                    }
-                }
-
-                if (mergedto != null)
-                {
-                    aliases[id] = (id, system, mergedto);
-                }
-            }
-
-            foreach (var selname in Selectors.Keys)
-            {
-                var addaliases = new List<(int id, string system, int? mergedto)>();
-                var updaliases = new List<(int id, string system, int? mergedto)>();
-                var delaliases = new List<int>();
-                var dbaliases = new HashSet<int>();
-
-                var conn = CreateConnection(selname);
-                conn.Open();
-
-                using (var cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = "SELECT edsmid, edsmid_mergedto, name FROM Aliases";
-
-                    using var rdr = cmd.ExecuteReader();
-                    while (rdr.Read())
-                    {
-                        int id = rdr.GetInt32(0);
-                        int? mergedto = rdr.IsDBNull(1) ? (int?)null : rdr.GetInt32(1);
-                        string system = rdr.GetString(2);
-
-                        dbaliases.Add(id);
-
-                        if (!aliases.TryGetValue(id, out var alias))
-                        {
-                            delaliases.Add(id);
-                        }
-                        else if (system != alias.system || mergedto != alias.mergedto)
-                        {
-                            updaliases.Add((id, system, mergedto));
-                        }
-                    }
-                }
-
-                foreach (var alias in aliases.Values)
-                {
-                    if (!dbaliases.Contains(alias.id))
-                    {
-                        addaliases.Add(alias);
-                    }
-                }
-
-                using var txn = conn.BeginTransaction();
-
-                using (var cmd = conn.CreateCommand())
-                {
-                    cmd.Transaction = txn;
-                    cmd.CommandText = "DELETE FROM Aliases WHERE edsmid = @edsmid";
-                    var idparam = cmd.Parameters.Add("@edsmid", SqliteType.Integer);
-
-                    foreach (var id in delaliases)
-                    {
-                        idparam.Value = id;
-                        cmd.ExecuteNonQuery();
-                    }
-                }
-
-                using (var cmd = conn.CreateCommand())
-                {
-                    cmd.Transaction = txn;
-                    cmd.CommandText = "UPDATE Aliases SET name = @name, edsmid_mergedto = @edsmid_mergedto WHERE edsmid = @edsmid";
-                    var idparam = cmd.Parameters.Add("@edsmid", SqliteType.Integer);
-                    var nameparam = cmd.Parameters.Add("@name", SqliteType.Text);
-                    var mergeparam = cmd.Parameters.Add("@edsm_mergedto", SqliteType.Integer);
-
-                    foreach (var (id, system, mergedto) in updaliases)
-                    {
-                        idparam.Value = id;
-                        nameparam.Value = system;
-                        mergeparam.Value = (object)mergedto ?? DBNull.Value;
-                        cmd.ExecuteNonQuery();
-                    }
-                }
-
-                using (var cmd = conn.CreateCommand())
-                {
-                    cmd.Transaction = txn;
-                    cmd.CommandText = "INSERT INTO Aliases (edsmid, name, edsmid_mergedto) VALUES (@edsmid, @name, @edsmid_mergedto)";
-                    var idparam = cmd.Parameters.Add("@edsmid", SqliteType.Integer);
-                    var nameparam = cmd.Parameters.Add("@name", SqliteType.Text);
-                    var mergeparam = cmd.Parameters.Add("@edsmid_mergedto", SqliteType.Integer);
-
-                    foreach (var (id, system, mergedto) in addaliases)
-                    {
-                        if (system != null)
-                        {
-                            idparam.Value = id;
-                            nameparam.Value = system;
-                            mergeparam.Value = (object)mergedto ?? DBNull.Value;
-                            cmd.ExecuteNonQuery();
-                        }
-                    }
-                }
-
-                using (var cmd = conn.CreateCommand())
-                {
-                    cmd.Transaction = txn;
-                    cmd.CommandText = "INSERT OR REPLACE INTO Register (Id, ValueString) VALUES (@Id, @Val)";
-                    cmd.Parameters.AddWithValue("@Id", "EDSMAliasLastDownloadTime");
-                    cmd.Parameters.AddWithValue("@Val", aliasesdate.ToString("O"));
-                    cmd.ExecuteNonQuery();
-                }
-
                 txn.Commit();
             }
         }
