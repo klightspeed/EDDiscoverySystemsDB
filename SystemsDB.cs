@@ -146,8 +146,6 @@ namespace EDDiscoverySystemsDB
 
         private readonly Dictionary<string, int> SectorNames = new(StringComparer.OrdinalIgnoreCase);
 
-        private readonly HashSet<int> CurrentSectors = new();
-
         private readonly Dictionary<long, string> Names = new();
 
         private readonly Dictionary<long, string> OrigNames = new();
@@ -308,7 +306,6 @@ namespace EDDiscoverySystemsDB
 
                     Sectors[(sector.Name.ToLowerInvariant(), sector.GridId)] = sector;
                     SectorList[sector.Id] = sector;
-                    CurrentSectors.Add(sector.Id);
 
                     if (sector.Id < 0)
                     {
@@ -822,6 +819,20 @@ namespace EDDiscoverySystemsDB
                 conn.Open();
                 using var txn = conn.BeginTransaction();
 
+                var currentSectors = new HashSet<int>();
+
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.Transaction = txn;
+                    cmd.CommandText = "SELECT Id FROM Sectors";
+                    using var rdr = cmd.ExecuteReader();
+
+                    while (rdr.Read())
+                    {
+                        currentSectors.Add(rdr.GetInt32(0));
+                    }
+                }
+
                 using (var cmd = conn.CreateCommand())
                 {
                     cmd.Transaction = txn;
@@ -832,13 +843,13 @@ namespace EDDiscoverySystemsDB
 
                     foreach (var sector in SectorList.Values)
                     {
-                        if (!CurrentSectors.Contains(sector.Id) && gridids.Contains(sector.GridId))
+                        if (!currentSectors.Contains(sector.Id) && gridids.Contains(sector.GridId))
                         {
                             idparam.Value = sector.Id;
                             nameparam.Value = sector.Name;
                             grididparam.Value = sector.GridId;
                             cmd.ExecuteNonQuery();
-                            CurrentSectors.Add(sector.Id);
+                            currentSectors.Add(sector.Id);
                         }
                     }
                 }
