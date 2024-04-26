@@ -156,6 +156,19 @@ namespace EDDiscoverySystemsDB
 
         private readonly HashSet<long> PermitSystems = new();
 
+        private readonly HashSet<long> ExcludeSystems = new()
+        {
+            349203072180, // SingleLightTest
+            353498039476, // BinaryLightTest
+            357793006772, // BinaryLightTest B
+            4099286239595, // AssetViewerSystem
+            7780433924818, // Test
+            9154823459538, // Test2
+            9704579273426, // TestRender
+            7780433957586, // Training
+            8055311864530 // Destination
+        };
+
         private static readonly Dictionary<string, string> Selectors = new()
         {
             ["All"] = "All",
@@ -590,6 +603,7 @@ namespace EDDiscoverySystemsDB
             bool eof = false;
             var addsystems = new List<SystemEntry>(EstimatedSystemsCount - Systems.Count);
             var updsystems = new List<SystemEntry>();
+            var badsystems = new List<(SystemEntry System, string Name, bool NeedsPermit, string Reason)>();
             var addPermits = new HashSet<long>();
             var delPermits = new HashSet<long>();
             var lastsectorid = SectorList.Keys.OrderByDescending(e => e).FirstOrDefault();
@@ -685,31 +699,55 @@ namespace EDDiscoverySystemsDB
                         Info = mainStar != null && SpanshToEDStar.TryGetValue(mainStar, out var edstar) ? (int)edstar : 0
                     };
 
-                    if (permit && !PermitSystems.Contains(sysaddr))
-                    {
-                        addPermits.Add(sysaddr);
-                    }
-                    else if (!permit && PermitSystems.Contains(sysaddr))
-                    {
-                        delPermits.Add(sysaddr);
-                    }
-
                     if (date > lastdate)
                     {
                         lastdate = date;
                     }
 
-                    ProcessSystemName(ref system, sysname);
+                    var masscode = (int)(sysaddr & 7);
+                    var tmpaddr = sysaddr >> 3;
+                    var addrmult = 10 << masscode;
+                    var addrz = z - ((tmpaddr & (0x3fff >> masscode)) * addrmult - 24105) * 128;
+                    tmpaddr >>= 14 - masscode;
+                    var addry = y - ((tmpaddr & (0x1fff >> masscode)) * addrmult - 40985) * 128;
+                    tmpaddr >>= 13 - masscode;
+                    var addrx = x - ((tmpaddr & (0x3fff >> masscode)) * addrmult - 49985) * 128;
 
-                    if (!Systems.TryGetValue(system.SystemAddress, out var oldsys))
+                    if (ExcludeSystems.Contains(sysaddr))
                     {
-                        Systems[system.SystemAddress] = system;
-                        addsystems.Add(system);
+                        badsystems.Add((system, sysname, permit, "Known test / training system"));
                     }
-                    else if (system != oldsys)
+                    else if (x == 0 && y == 0 && z == 0 && sysaddr != 10477373803)
                     {
-                        Systems[system.SystemAddress] = system;
-                        updsystems.Add(system);
+                        badsystems.Add((system, sysname, permit, "System other than Sol at 0 / 0 / 0"));
+                    }
+                    else if (addrz < 0 || addrz > addrmult * 128 || addry < 0 || addry > addrmult * 128 || addrx < 0 || addrx > addrmult * 128)
+                    {
+                        badsystems.Add((system, sysname, permit, "Coordinates outside boxel"));
+                    }
+                    else
+                    {
+                        if (permit && !PermitSystems.Contains(sysaddr))
+                        {
+                            addPermits.Add(sysaddr);
+                        }
+                        else if (!permit && PermitSystems.Contains(sysaddr))
+                        {
+                            delPermits.Add(sysaddr);
+                        }
+
+                        ProcessSystemName(ref system, sysname);
+
+                        if (!Systems.TryGetValue(system.SystemAddress, out var oldsys))
+                        {
+                            Systems[system.SystemAddress] = system;
+                            addsystems.Add(system);
+                        }
+                        else if (system != oldsys)
+                        {
+                            Systems[system.SystemAddress] = system;
+                            updsystems.Add(system);
+                        }
                     }
                 }
 
@@ -722,14 +760,14 @@ namespace EDDiscoverySystemsDB
 
                     if ((num % 64000) == 0)
                     {
-                        Console.Error.Write($" {num}\n");
+                        Console.Error.Write($" {num} [{addsystems.Count} adds, {updsystems.Count} updates, {badsystems.Count} bad]\n");
                     }
 
                     Console.Error.Flush();
                 }
             }
 
-            Console.Error.WriteLine($" {num}");
+            Console.Error.WriteLine($" {num} [{addsystems.Count} adds, {updsystems.Count} updates, {badsystems.Count} bad]");
 
             Console.Error.WriteLine("Sorting new sectors");
 
