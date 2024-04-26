@@ -387,6 +387,8 @@ namespace EDDiscoverySystemsDB
                 }
             }
 
+            Console.Error.Write($" {num}\n");
+
             Console.Error.WriteLine("Loading permit systems");
             using (var cmd = conn.CreateCommand())
             {
@@ -399,8 +401,6 @@ namespace EDDiscoverySystemsDB
                     PermitSystems.Add(rdr.GetInt64(0));
                 }
             }
-
-            Console.Error.Write($" {num}\n");
         }
 
         private bool SplitProcgenName(string systemname, out string regionname, out int mid, out int n2, out int masscode)
